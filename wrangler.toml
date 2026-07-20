@@ -1,0 +1,21 @@
+name = "tinyhub-api"
+main = "src/index.js"
+compatibility_date = "2026-07-15"
+compatibility_flags = ["nodejs_compat"]
+
+assets = { directory = "./public", binding = "ASSETS" }
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "tinyhub-files"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tinyhub-db"
+database_id = "436ed677-c8fb-4384-ad51-8b2c1669c7c1"
+
+[vars]
+TINYHUB_USER = "andie"
+
+[observability]
+enabled = true

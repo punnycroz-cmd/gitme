@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(new-app)",
+      "Agent(Explore)"
+    ]
+  },
+  "$version": 4
+}

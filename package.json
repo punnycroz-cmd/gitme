@@ -1,0 +1,7 @@
+{
+  "name": "tinyhub-cloudflare",
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^3.114.17"
+  }
+}
