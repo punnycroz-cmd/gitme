@@ -325,22 +325,24 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
     });
   }
 
-  // Token budget: pre-calculate from sizes, filter before downloading content
+  // Pre-calculate sizes for token budget and skipping large files
+  const sizeMap = new Map();
+  const dumpPrefix = `projects/${user}/${proj}/`;
+  let dumpListResult = await env.FILES.list({ prefix: dumpPrefix });
+  let dumpAllObjects = [...dumpListResult.objects];
+  while (dumpListResult.truncated) {
+    dumpListResult = await env.FILES.list({ prefix: dumpPrefix, cursor: dumpListResult.cursor });
+    dumpAllObjects.push(...dumpListResult.objects);
+  }
+  for (const obj of dumpAllObjects) {
+    const path = obj.key.replace(dumpPrefix, '');
+    if (path) sizeMap.set(path, obj.size || 0);
+  }
+
+  // Token budget
   const maxTokens = parseInt(searchParams.get('max_tokens') || '0');
   if (maxTokens > 0) {
     const budgetBytes = maxTokens * 4;
-    const sizeMap = new Map();
-    const prefix = `projects/${user}/${proj}/`;
-    let listResult = await env.FILES.list({ prefix });
-    let allObjects = [...listResult.objects];
-    while (listResult.truncated) {
-      listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
-      allObjects.push(...listResult.objects);
-    }
-    for (const obj of allObjects) {
-      const path = obj.key.replace(prefix, '');
-      if (path) sizeMap.set(path, obj.size || 0);
-    }
     const sorted = [...filesToShow].sort((a, b) => {
       const aP = ALWAYS_INCLUDE.has(a) ? 0 : 1;
       const bP = ALWAYS_INCLUDE.has(b) ? 0 : 1;
@@ -366,8 +368,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
     await Promise.all(
       batch.map(async (path) => {
         try {
-          const meta = await getFileMeta(env.FILES, `projects/${user}/${proj}/${path}`);
-          const size = meta?.size || 0;
+          const size = sizeMap.get(path) || 0;
 
           if (fileCount >= DUMP_MAX_FILES && !ALWAYS_INCLUDE.has(path)) {
             skipped.push({ path, reason: 'max_files' });
@@ -962,6 +963,8 @@ export default {
             added.push(path);
           } else if (oldSha !== sha) {
             modified.push(path);
+          } else {
+            continue;
           }
           writePromises.push(putFile(env.FILES, `projects/${USER}/${proj}/${path}`, bytes, { sha256: sha, lines: String(new TextDecoder('utf-8', { fatal: false }).decode(bytes).split('\n').length) }));
           saved.push(path);
@@ -1037,8 +1040,8 @@ export default {
         batchStatements.push(
           env.DB.prepare(
             'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
-            'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
-          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, (commitsCountResult?.count || 0) + 1)
+            'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = projects.commits_count + 1'
+          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, 1)
         );
 
         await env.DB.batch(batchStatements);
@@ -1108,6 +1111,7 @@ export default {
           const oldSha = oldHashes.get(safePath);
           if (!oldSha) added.push(safePath);
           else if (oldSha !== sha) modified.push(safePath);
+          else continue;
           await putFile(env.FILES, `projects/${USER}/${proj}/${safePath}`, bytes, { sha256: sha, lines: String(new TextDecoder('utf-8', { fatal: false }).decode(bytes).split('\n').length) });
           saved.push(safePath);
         }
@@ -1172,8 +1176,8 @@ export default {
         batchStatements.push(
           env.DB.prepare(
             'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
-            'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
-          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, (commitsCountResult?.count || 0) + 1)
+            'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = projects.commits_count + 1'
+          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, 1)
         );
 
         await env.DB.batch(batchStatements);
