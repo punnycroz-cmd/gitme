@@ -50,7 +50,7 @@
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
         </svg>
       </button>
-      <div class="user-badge">User: <strong id="user-display">andie</strong></div>
+      <div class="user-badge">User: <strong id="user-display">…</strong></div>
     </div>
   </header>
 
@@ -109,12 +109,12 @@
         Use the endpoints below (or add <code>?format=json</code> to <code>/p/…</code>).
       </p>
       <pre class="code-block"># BEST for Meta AI — one HTML page with EVERY file inline
-GET /dump/andie/my-app/
+GET /dump/&lt;user&gt;/my-app/
 # Open that URL → Copy All → paste into the chat
 
 # Or one JSON blob of all files
 GET /api/bundle/my-app
-GET /dump/andie/my-app/?format=json
+GET /dump/&lt;user&gt;/my-app/?format=json
 
 # List / single file
 GET /api/tree/my-app
@@ -129,10 +129,10 @@ GET /api/tree/my-app?meta=1
 
 # Write selected files (requires token)
 POST /api/commit/my-app
-Authorization: Bearer <configured-token>
+Authorization: Bearer &lt;configured-token&gt;
 { "message": "Update", "files": { "src/index.js": "console.log('hi')" }, "deletes": [] }</pre>
       <p style="font-size: 13px; margin-top: 12px;">
-        <a href="/dump/andie/my-app/"><strong>Open AI dump for my-app →</strong></a>
+        <a id="dump-link" href="#"><strong>Open AI dump for my-app →</strong></a>
       </p>
     </div>
   </main>
@@ -143,14 +143,17 @@ Authorization: Bearer <configured-token>
       <h3 id="modal-title">Push project</h3>
       <p id="modal-desc" style="font-size: 14px; color: var(--text-muted); line-height: 1.5; margin: 16px 0;"></p>
       <div id="modal-diff" class="modal-diff" style="margin-bottom: 16px; max-height: 240px; overflow-y: auto;"></div>
-      <label for="push-message" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Commit message</label>
-      <label for="push-mode" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Mode</label>
+      <label for="push-message" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Commit
+        message</label>
+      <label for="push-mode"
+        style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Mode</label>
       <select id="push-mode" style="width:100%;margin-bottom:12px;">
         <option value="push" selected>push — sync tree (delete remote-only files)</option>
         <option value="merge">merge — never delete remote-only files</option>
         <option value="replace">replace — wipe remote tip, then write</option>
       </select>
-      <label for="push-token" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Auth Token (if configured on server)</label>
+      <label for="push-token" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Auth Token
+        (if configured on server)</label>
       <input id="push-token" type="password" placeholder="Enter TINYHUB_TOKEN" style="width:100%;margin-bottom:16px;">
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px;line-height:1.4;">
         Default <strong>push</strong> matches GitHub: files missing from your folder are removed on the remote.
@@ -166,23 +169,40 @@ Authorization: Bearer <configured-token>
     <div class="modal-card">
       <h3 style="color: var(--error, #e11d48);">Delete Project</h3>
       <p style="font-size: 14px; color: var(--text-muted); line-height: 1.5; margin: 16px 0;">
-        This will permanently delete the project <strong id="delete-proj-name" style="color: var(--text-main);"></strong>, its file tree, and entire commit history. This action cannot be undone.
+        This will permanently delete the project <strong id="delete-proj-name"
+          style="color: var(--text-main);"></strong>, its file tree, and entire commit history. This action cannot be
+        undone.
       </p>
-      
-      <label for="delete-confirm-input" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Type the project name to confirm:</label>
+
+      <label for="delete-confirm-input"
+        style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Type the project name to
+        confirm:</label>
       <input id="delete-confirm-input" type="text" placeholder="" style="width:100%;margin-bottom:16px;">
-      
-      <label for="delete-token-input" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Server Token (leave empty if stored):</label>
+
+      <label for="delete-token-input"
+        style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Server Token (leave empty if
+        stored):</label>
       <input id="delete-token-input" type="password" placeholder="TINYHUB_TOKEN" style="width:100%;margin-bottom:20px;">
-      
+
       <div class="modal-actions">
         <button class="btn btn-secondary" id="delete-cancel">Cancel</button>
-        <button class="btn" id="delete-confirm-btn" style="background: var(--error, #e11d48); border: none; color: white;" disabled>Delete permanently</button>
+        <button class="btn" id="delete-confirm-btn"
+          style="background: var(--error, #e11d48); border: none; color: white;" disabled>Delete permanently</button>
       </div>
     </div>
   </div>
 
   <script src="/app.js"></script>
+  <script>
+    fetch('/api/config').then(r => r.json()).then(d => {
+      if (d.user) {
+        var el = document.getElementById('user-display');
+        if (el) el.textContent = d.user;
+        var link = document.getElementById('dump-link');
+        if (link) link.href = `/dump/${d.user}/my-app/`;
+      }
+    }).catch(() => { });
+  </script>
 </body>
 
 </html>

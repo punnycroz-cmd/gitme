@@ -830,7 +830,7 @@
       applyAiBtn.addEventListener('click', () => {
         aiMarkdown.value = '';
         aiMessage.value = 'Apply AI changes';
-        aiToken.value = localStorage.getItem('TINYHUB_TOKEN') || '';
+        aiToken.value = sessionStorage.getItem('TINYHUB_TOKEN') || localStorage.getItem('TINYHUB_TOKEN') || '';
         aiParseSummary.style.display = 'none';
         aiSubmitBtn.disabled = true;
         applyAiModal.style.display = 'flex';
@@ -881,7 +881,7 @@
         const token = aiToken.value.trim();
         const message = aiMessage.value.trim() || 'Apply AI changes';
 
-        localStorage.setItem('TINYHUB_TOKEN', token);
+        sessionStorage.setItem('TINYHUB_TOKEN', token);
 
         aiSubmitBtn.disabled = true;
         aiSubmitBtn.textContent = 'Applying...';
@@ -983,7 +983,7 @@
 
         try {
           const uploadHeaders = {};
-          const token = localStorage.getItem('TINYHUB_TOKEN') || '';
+          const token = sessionStorage.getItem('TINYHUB_TOKEN') || localStorage.getItem('TINYHUB_TOKEN') || '';
           if (token) {
             uploadHeaders['Authorization'] = `Bearer ${token}`;
           }

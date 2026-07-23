@@ -17,11 +17,11 @@
     var current = html.getAttribute('data-theme') || 'light';
     var next = current === 'light' ? 'twilight' : 'light';
     html.setAttribute('data-theme', next);
-    localStorage.setItem('ghibli-theme', next);
+    localStorage.setItem('tinyhub-theme', next);
     updateIcon(next);
   });
 
-  var saved = localStorage.getItem('ghibli-theme');
+  var saved = localStorage.getItem('tinyhub-theme');
   if (saved) {
     updateIcon(saved);
   } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -38,6 +38,15 @@ if (queryApi) {
   API_BASE = queryApi.replace(/\/$/, '');
   localStorage.setItem('TINYHUB_API_BASE', API_BASE);
 }
+
+// One-time migration: move token from localStorage to sessionStorage
+(function () {
+  var oldToken = localStorage.getItem('TINYHUB_TOKEN');
+  if (oldToken && !sessionStorage.getItem('TINYHUB_TOKEN')) {
+    sessionStorage.setItem('TINYHUB_TOKEN', oldToken);
+    localStorage.removeItem('TINYHUB_TOKEN');
+  }
+})();
 
 async function initConfig() {
   try {
@@ -447,14 +456,16 @@ async function handleIncomingFiles(fileList) {
     } else if (treeRes.ok) {
       const etag = treeRes.headers.get('ETag');
       const data = await treeRes.json();
+      var remoteTip = null;
       if (Array.isArray(data)) {
         remoteFiles = data.map((p) => ({ path: p, size: null, sha256: null }));
       } else if (data && Array.isArray(data.files)) {
         remoteFiles = data.files;
+        remoteTip = data.commit || null;
       }
       remoteExists = remoteFiles.length > 0;
       if (etag) {
-        remoteTreeCache.set(proj, { etag, files: remoteFiles });
+        remoteTreeCache.set(proj, { etag, files: remoteFiles, tip: remoteTip });
       }
     }
   } catch (e) {
@@ -524,7 +535,7 @@ function showPushModal(proj, classification, remoteExists, blockedCount) {
 
   const tokenInput = document.getElementById('push-token');
   if (tokenInput) {
-    tokenInput.value = localStorage.getItem('TINYHUB_TOKEN') || '';
+    tokenInput.value = sessionStorage.getItem('TINYHUB_TOKEN') || localStorage.getItem('TINYHUB_TOKEN') || '';
   }
 
   if (okBtn) {
@@ -585,6 +596,11 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
     fd.append('mode', mode || 'push');
     fd.append('encodings', JSON.stringify(encodings));
 
+    const cachedTree = remoteTreeCache.get(proj);
+    if (cachedTree && cachedTree.tip) {
+      fd.append('baseTip', cachedTree.tip);
+    }
+
     if (isIncremental) {
       fd.append('incremental', '1');
       fd.append('deletes', JSON.stringify(deleted));
@@ -594,7 +610,7 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
     }
 
     const uploadHeaders = {};
-    const token = localStorage.getItem('TINYHUB_TOKEN') || '';
+    const token = sessionStorage.getItem('TINYHUB_TOKEN') || localStorage.getItem('TINYHUB_TOKEN') || '';
     if (token) {
       uploadHeaders['Authorization'] = `Bearer ${token}`;
     }
@@ -605,6 +621,14 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
       body: fd
     })
       .then((r) => {
+        if (r.status === 409) {
+          return r.json().then((conflict) => {
+            status.innerHTML = `<strong>⚠️ Conflict detected</strong> — remote has newer commits.<br>` +
+              `Your tip: <code>${escapeHtml(conflict.yourTip || '')}</code> · Remote tip: <code>${escapeHtml(conflict.remoteTip || '')}</code><br>` +
+              `<a href="#" onclick="window.location.reload(); return false;">Refresh and retry →</a>`;
+            throw new Error('conflict');
+          });
+        }
         if (!r.ok) {
           return r
             .json()
@@ -673,7 +697,7 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
         if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
           const inputToken = prompt('Authentication required (401 Unauthorized).\nPlease enter your TINYHUB_TOKEN:');
           if (inputToken && inputToken.trim()) {
-            localStorage.setItem('TINYHUB_TOKEN', inputToken.trim());
+            sessionStorage.setItem('TINYHUB_TOKEN', inputToken.trim());
             status.textContent = 'Token saved. Retrying push…';
             performPush(fileList, proj, blockedLocal, message, mode);
             return;
@@ -720,7 +744,7 @@ if (okBtn) {
     const mode = modeSelect ? modeSelect.value : 'push';
 
     if (tokenInput && tokenInput.value.trim()) {
-      localStorage.setItem('TINYHUB_TOKEN', tokenInput.value.trim());
+      sessionStorage.setItem('TINYHUB_TOKEN', tokenInput.value.trim());
     }
 
     performPush(pendingFiles, pendingProj, pendingBlocked, message, mode);
@@ -747,20 +771,28 @@ if (modeSelectEl) {
       incomingPaths.push({ file: f, path });
     }
     let remoteFiles = [];
+    const cachedTree = remoteTreeCache.get(pendingProj);
+    const treeHeaders = {};
+    if (cachedTree?.etag) treeHeaders['If-None-Match'] = cachedTree.etag;
     try {
       const treeRes = await fetch(
         `${API_BASE}/api/tree/${encodeURIComponent(pendingProj)}?meta=1`,
-        { cache: 'no-store' }
+        { headers: treeHeaders, cache: 'no-store' }
       );
-      if (treeRes.ok) {
+      if (treeRes.status === 304 && cachedTree) {
+        remoteFiles = cachedTree.files;
+      } else if (treeRes.ok) {
         const data = await treeRes.json();
         remoteFiles = Array.isArray(data) ? data.map((p) => ({ path: p })) : data.files || [];
+        const etag = treeRes.headers.get('ETag');
+        if (etag) remoteTreeCache.set(pendingProj, { etag, files: remoteFiles, tip: data.commit || cachedTree?.tip });
       }
     } catch (_) { }
     pendingClassification = await classifyLocalVsRemote(
       incomingPaths,
       remoteFiles,
-      modeSelectEl.value
+      modeSelectEl.value,
+      pendingProj
     );
     showPushModal(
       pendingProj,
@@ -787,7 +819,7 @@ function openDeleteModal(projName) {
   deleteConfirmInput.placeholder = projName;
 
   // Pre-fill token if stored in localStorage
-  const storedToken = localStorage.getItem('TINYHUB_TOKEN') || '';
+  const storedToken = sessionStorage.getItem('TINYHUB_TOKEN') || localStorage.getItem('TINYHUB_TOKEN') || '';
   deleteTokenInput.value = storedToken;
 
   deleteConfirmBtn.disabled = true;
@@ -808,9 +840,9 @@ if (deleteCancel) {
 
 if (deleteConfirmBtn) {
   deleteConfirmBtn.addEventListener('click', async () => {
-    const token = deleteTokenInput.value.trim() || localStorage.getItem('TINYHUB_TOKEN') || '';
+    const token = deleteTokenInput.value.trim() || sessionStorage.getItem('TINYHUB_TOKEN') || localStorage.getItem('TINYHUB_TOKEN') || '';
     if (token) {
-      localStorage.setItem('TINYHUB_TOKEN', token);
+      sessionStorage.setItem('TINYHUB_TOKEN', token);
     }
 
     deleteConfirmBtn.disabled = true;

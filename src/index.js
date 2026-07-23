@@ -544,15 +544,24 @@ export default {
         }
 
         if (wantMeta) {
+          const prefix = `projects/${USER}/${proj}/`;
+          let listResult = await env.FILES.list({ prefix });
+          let allObjects = [...listResult.objects];
+          while (listResult.truncated) {
+            listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
+            allObjects.push(...listResult.objects);
+          }
           const fileList = [];
-          for (const path of paths) {
-            const meta = await getFileMeta(env.FILES, `projects/${USER}/${proj}/${path}`);
+          for (const obj of allObjects) {
+            const relPath = obj.key.replace(prefix, '');
+            if (!relPath || isBlocked(relPath)) continue;
             fileList.push({
-              path,
-              size: meta?.size || 0,
-              sha256: meta?.sha256 || null
+              path: relPath,
+              size: obj.size || 0,
+              sha256: obj.customMetadata?.sha256 || null
             });
           }
+          fileList.sort((a, b) => a.path.localeCompare(b.path));
           return jsonResponse({
             repo: `${USER}/${proj}`,
             project: proj,
@@ -642,6 +651,22 @@ export default {
         if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
 
         const formData = await request.formData();
+
+        const baseTip = formData.get('baseTip');
+        if (baseTip) {
+          const currentTip = await env.DB.prepare(
+            'SELECT hash12 FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
+          ).bind(USER, proj).first();
+          if (currentTip && currentTip.hash12 !== baseTip) {
+            return jsonResponse({
+              error: 'conflict',
+              message: 'Remote has newer commits. Refresh and retry.',
+              remoteTip: currentTip.hash12,
+              yourTip: baseTip,
+            }, 409, corsHeaders);
+          }
+        }
+
         let mode = (formData.get('mode') || 'push').toString().toLowerCase();
         if (!['push', 'merge', 'replace'].includes(mode)) mode = 'push';
         let message = (formData.get('message') || '').toString().trim();
@@ -814,7 +839,7 @@ export default {
           env.DB.prepare(
             'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
             'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
-          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, commitsCountResult.count)
+          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, (commitsCountResult?.count || 0) + 1)
         );
 
         await env.DB.batch(batchStatements);
@@ -949,7 +974,7 @@ export default {
           env.DB.prepare(
             'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
             'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
-          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, commitsCountResult.count)
+          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, (commitsCountResult?.count || 0) + 1)
         );
 
         await env.DB.batch(batchStatements);
