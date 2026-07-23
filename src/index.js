@@ -166,7 +166,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
   if (mode === 'delta') {
     if (hasCommits) {
       isDeltaMode = true;
-      if (since) {
+      if (since && since !== 'last') {
         const sinceCommit = await env.DB.prepare('SELECT id, hash12, created_at FROM commits WHERE hash12 = ? AND user = ? AND proj = ?').bind(since, user, proj).first();
         if (sinceCommit) {
           const commitsResult = await env.DB.prepare('SELECT id, hash12 FROM commits WHERE user = ? AND proj = ? AND created_at >= ?').bind(user, proj, sinceCommit.created_at).all();
@@ -197,6 +197,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
           bannerMessage = `Commit ${since} not found; showing changes from last commit instead.`;
         }
       } else {
+        // since=last or since not provided: show changes from the most recent commit
         const filesResult = await env.DB.prepare('SELECT path, change_type FROM commit_files WHERE commit_id = ?').bind(lastCommit.id).all();
         changed = filesResult.results;
       }

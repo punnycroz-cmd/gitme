@@ -656,8 +656,8 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
             `<br><a href="/p/${curUser}/${escapeHtml(proj)}/${vParam}">Browse →</a> · <a href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}"><strong>AI dump →</strong></a>` +
             `<div style="margin-top:12px; display:flex; gap:8px;">` +
             `  <a class="btn" href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}">Copy Full</a>` +
-            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?mode=delta&v=${commitHash || Date.now()}">Copy Delta</a>` +
-            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?path=public&mode=delta&v=${commitHash || Date.now()}">Copy public/ only</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?mode=delta&since=last">Copy Delta</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?path=public&mode=delta&since=last">Copy public/ only</a>` +
             `</div>`;
         } else {
           status.innerHTML =
@@ -671,8 +671,8 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
             `<br><a href="/p/${curUser}/${escapeHtml(proj)}/${vParam}">Browse →</a> · <a href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}"><strong>AI dump →</strong></a>` +
             `<div style="margin-top:12px; display:flex; gap:8px;">` +
             `  <a class="btn" href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}">Copy Full</a>` +
-            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?mode=delta&v=${commitHash || Date.now()}">Copy Delta</a>` +
-            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?path=public&mode=delta&v=${commitHash || Date.now()}">Copy public/ only</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?mode=delta&since=last">Copy Delta</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?path=public&mode=delta&since=last">Copy public/ only</a>` +
             `</div>`;
         }
 

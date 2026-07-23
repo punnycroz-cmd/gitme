@@ -23,6 +23,7 @@
       margin-left: 20px;
       align-items: center;
     }
+
     .dump-chip {
       background: var(--bg-glass-inset);
       border: 1px solid var(--border-glass);
@@ -33,6 +34,7 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-weight: 500;
     }
+
     .dump-banner.delta-banner {
       background: rgba(129, 140, 248, 0.1);
       border: 1px dashed var(--accent);
@@ -43,15 +45,18 @@
       font-size: 13px;
       line-height: 1.5;
     }
+
     .dump-banner.delta-banner strong {
       color: var(--accent);
     }
+
     .dump-banner.delta-banner code {
       background: var(--bg-glass-inset);
       padding: 2px 6px;
       border-radius: 4px;
       font-family: ui-monospace, monospace;
     }
+
     .dump-path {
       cursor: pointer;
       user-select: none;
@@ -59,9 +64,11 @@
       align-items: center;
       justify-content: space-between;
     }
+
     .dump-section.collapsed .dump-code {
       display: none;
     }
+
     .dump-section.collapsed .dump-path {
       border-bottom: none;
     }
@@ -102,6 +109,15 @@
         </svg>
         Browser
       </a>
+      <a class="copy-btn" id="delta-link" href="#" style="display: inline-flex; text-decoration: none;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Delta
+      </a>
     </div>
   </header>
 
@@ -132,6 +148,15 @@
       const freshnessEl = document.getElementById('dump-freshness');
       if (freshnessEl) {
         freshnessEl.textContent = `commit ${commit} · rendered ${new Date().toLocaleString()}`;
+      }
+
+      const deltaLink = document.getElementById('delta-link');
+      if (deltaLink) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('mode', 'delta');
+        url.searchParams.set('since', 'last');
+        url.searchParams.delete('v');
+        deltaLink.href = url.pathname + url.search;
       }
 
       document.querySelectorAll('.dump-path').forEach(header => {
