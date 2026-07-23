@@ -9,7 +9,7 @@
   <!-- Pre-apply theme to avoid flash -->
   <script>
     (function () {
-      var saved = localStorage.getItem('ghibli-theme');
+      var saved = localStorage.getItem('tinyhub-theme');
       if (saved) {
         document.documentElement.setAttribute('data-theme', saved);
       } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -144,13 +144,14 @@ Authorization: Bearer <configured-token>
       <p id="modal-desc" style="font-size: 14px; color: var(--text-muted); line-height: 1.5; margin: 16px 0;"></p>
       <div id="modal-diff" class="modal-diff" style="margin-bottom: 16px; max-height: 240px; overflow-y: auto;"></div>
       <label for="push-message" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Commit message</label>
-      <input id="push-message" type="text" placeholder="Push: +0 ~1 -0" style="width:100%;margin-bottom:12px;">
       <label for="push-mode" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Mode</label>
-      <select id="push-mode" style="width:100%;margin-bottom:16px;">
+      <select id="push-mode" style="width:100%;margin-bottom:12px;">
         <option value="push" selected>push — sync tree (delete remote-only files)</option>
         <option value="merge">merge — never delete remote-only files</option>
         <option value="replace">replace — wipe remote tip, then write</option>
       </select>
+      <label for="push-token" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;">Auth Token (if configured on server)</label>
+      <input id="push-token" type="password" placeholder="Enter TINYHUB_TOKEN" style="width:100%;margin-bottom:16px;">
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px;line-height:1.4;">
         Default <strong>push</strong> matches GitHub: files missing from your folder are removed on the remote.
       </p>

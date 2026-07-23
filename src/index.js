@@ -2,7 +2,6 @@
 import { isBlocked, safeRelPath, safeProj, normalizeUploadPath, sha256Hex, sha256Bytes } from './security.js';
 import { listProjectFiles, getFileMeta, putFile } from './storage.js';
 
-const USER = 'andie';
 const DUMP_MAX_FILES = 200;
 const DUMP_MAX_FILE_SIZE = 512 * 1024;
 const DUMP_MAX_TOTAL = 8 * 1024 * 1024;
@@ -105,6 +104,24 @@ function checkAuth(request, env) {
   return timingSafeEqual(authHeader, expectedAuth);
 }
 
+function writeCorsHeaders(request) {
+  const base = {
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+  };
+  const origin = request.headers.get('Origin');
+  if (origin) {
+    try {
+      const originHost = new URL(origin).host;
+      const requestHost = new URL(request.url).host;
+      if (originHost === requestHost) {
+        return { 'Access-Control-Allow-Origin': origin, ...base };
+      }
+    } catch { }
+  }
+  return base;
+}
+
 function buildStructuredTree(paths, sizes = {}) {
   const dirSet = new Set();
   for (const p of paths) {
@@ -139,7 +156,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
 
   const lastCommit = await env.DB.prepare(
     'SELECT id, hash12, parent_hash12, message, stats_json FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
-  ).bind(USER, proj).first();
+  ).bind(user, proj).first();
 
   let changed = [];
   let isDeltaMode = false;
@@ -150,14 +167,14 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
     if (hasCommits) {
       isDeltaMode = true;
       if (since) {
-        const sinceCommit = await env.DB.prepare('SELECT id, hash12, created_at FROM commits WHERE hash12 = ? AND user = ? AND proj = ?').bind(since, USER, proj).first();
+        const sinceCommit = await env.DB.prepare('SELECT id, hash12, created_at FROM commits WHERE hash12 = ? AND user = ? AND proj = ?').bind(since, user, proj).first();
         if (sinceCommit) {
-          const commitsResult = await env.DB.prepare('SELECT id, hash12 FROM commits WHERE user = ? AND proj = ? AND created_at >= ?').bind(USER, proj, sinceCommit.created_at).all();
+          const commitsResult = await env.DB.prepare('SELECT id, hash12 FROM commits WHERE user = ? AND proj = ? AND created_at >= ?').bind(user, proj, sinceCommit.created_at).all();
           const commitIds = commitsResult.results.filter(c => c.hash12 !== sinceCommit.hash12).map(c => c.id);
           if (commitIds.length > 0) {
             const placeholders = commitIds.map(() => '?').join(',');
             const filesResult = await env.DB.prepare(`SELECT path, change_type FROM commit_files WHERE commit_id IN (${placeholders})`).bind(...commitIds).all();
-            
+
             const pathMap = new Map();
             for (const row of filesResult.results) {
               const prev = pathMap.get(row.path);
@@ -188,7 +205,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
     }
   }
 
-  const allPaths = await listProjectFiles(env.FILES, USER, proj);
+  const allPaths = await listProjectFiles(env.FILES, user, proj);
   let filteredPaths = allPaths;
   if (cleanPathFilter) {
     const cleanFilter = cleanPathFilter.replace(/\/$/, '');
@@ -237,7 +254,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
     await Promise.all(
       batch.map(async (path) => {
         try {
-          const meta = await getFileMeta(env.FILES, `projects/${USER}/${proj}/${path}`);
+          const meta = await getFileMeta(env.FILES, `projects/${user}/${proj}/${path}`);
           const size = meta?.size || 0;
 
           if (fileCount >= DUMP_MAX_FILES && !ALWAYS_INCLUDE.has(path)) {
@@ -249,7 +266,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
             return;
           }
 
-          const object = await env.FILES.get(`projects/${USER}/${proj}/${path}`);
+          const object = await env.FILES.get(`projects/${user}/${proj}/${path}`);
           if (!object) {
             skipped.push({ path, reason: 'missing' });
             return;
@@ -291,7 +308,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
   // JSON output
   if (forceJson || wantsJson(request, searchParams)) {
     return jsonResponse({
-      repo: `${USER}/${proj}`,
+      repo: `${user}/${proj}`,
       type: isDeltaMode ? 'delta' : 'dump',
       commit: lastCommit?.hash12 || null,
       parent: lastCommit?.parent_hash12 || null,
@@ -303,8 +320,8 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
       skipped,
       unchanged: includeUnchanged ? unchangedFiles : undefined,
       urls: {
-        html: `/dump/${USER}/${proj}/${url.search}`,
-        browser: `/p/${USER}/${proj}/`
+        html: `/dump/${user}/${proj}/${url.search}`,
+        browser: `/p/${user}/${proj}/`
       }
     }, 200, corsHeaders);
   }
@@ -316,12 +333,12 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
 
   let textDump = '';
   if (isDeltaMode) {
-    textDump += `// TinyHub delta: ${USER}/${proj}\n`;
+    textDump += `// TinyHub delta: ${user}/${proj}\n`;
     textDump += `// commit: ${lastCommit?.hash12 || 'none'} parent: ${lastCommit?.parent_hash12 || 'none'}\n`;
     textDump += `// message: ${lastCommit?.message || 'none'}\n`;
     textDump += `// stats: +${deltaStats.added} ~${deltaStats.modified} -${deltaStats.deleted}\n\n`;
   } else {
-    textDump += `// TinyHub repository dump: ${USER}/${proj}\n`;
+    textDump += `// TinyHub repository dump: ${user}/${proj}\n`;
     textDump += `// total files: ${filesToShow.length}\n\n`;
   }
 
@@ -345,11 +362,11 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
   let chipsHtml = '<div class="dump-chips">';
   if (isDeltaMode) {
     chipsHtml += `<span class="dump-chip">+${deltaStats.added} ~${deltaStats.modified} -${deltaStats.deleted}</span>`;
-    chipsHtml += `<span class="dump-chip">${(totalBytes/1024).toFixed(1)} KB</span>`;
+    chipsHtml += `<span class="dump-chip">${(totalBytes / 1024).toFixed(1)} KB</span>`;
     chipsHtml += `<span class="dump-chip">commit ${lastCommit?.hash12 || 'none'}</span>`;
   } else {
     chipsHtml += `<span class="dump-chip">${filesToShow.length} files</span>`;
-    chipsHtml += `<span class="dump-chip">${(totalBytes/1024).toFixed(1)} KB</span>`;
+    chipsHtml += `<span class="dump-chip">${(totalBytes / 1024).toFixed(1)} KB</span>`;
     chipsHtml += `<span class="dump-chip">commit ${lastCommit?.hash12 || 'none'}</span>`;
   }
   chipsHtml += '</div>';
@@ -396,16 +413,21 @@ Reply only with changed files using <code>// File: path</code></pre>
   if (skipped.length) metaHtml += ` · ${skipped.length} skipped`;
   metaHtml += ` · ${totalBytes.toLocaleString()} bytes`;
 
-  const title = `TinyHub — ${USER}/${proj} (${isDeltaMode ? 'delta' : 'dump'})`;
+  const title = `TinyHub — ${user}/${proj} (${isDeltaMode ? 'delta' : 'dump'})`;
   tmpl = tmpl.replace('<!-- SSR_TITLE -->', escapeHtml(title));
   tmpl = tmpl.replace('<!-- SSR_DUMP_CHIPS -->', chipsHtml);
   tmpl = tmpl.replace('<!-- SSR_DUMP_BANNER -->', bannerHtml);
   tmpl = tmpl.replace('<!-- SSR_DUMP_CONTENT -->', `<div class="dump-meta">${escapeHtml(metaHtml)}</div>${sectionsHtml}`);
-  tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${USER}/${proj}/`);
+  tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${user}/${proj}/`);
   tmpl = tmpl.replace('<!-- SSR_RAW_DUMP_TEXT -->', escapeHtml(textDump));
   tmpl = tmpl.replace('<!-- SSR_COMMIT_HASH -->', lastCommit?.hash12 || 'none');
 
   const etag = `"${lastCommit?.hash12 || 'none'}-${totalBytes}"`;
+
+  if (request.headers.get('If-None-Match') === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag, ...corsHeaders } });
+  }
+
   return new Response(tmpl, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -417,6 +439,24 @@ Reply only with changed files using <code>// File: path</code></pre>
   });
 }
 
+const rateBuckets = new Map();
+
+function checkRateLimit(ip, limit = 30, windowMs = 60_000) {
+  const now = Date.now();
+  let b = rateBuckets.get(ip);
+  if (!b || now > b.resetAt) {
+    b = { count: 0, resetAt: now + windowMs };
+    rateBuckets.set(ip, b);
+  }
+  b.count++;
+  if (rateBuckets.size > 5000) {
+    for (const [k, v] of rateBuckets) {
+      if (now > v.resetAt) rateBuckets.delete(k);
+    }
+  }
+  return b.count <= limit;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -425,23 +465,31 @@ export default {
       pathname = pathname.slice(0, -1);
     }
     const { searchParams } = url;
+    const USER = env.TINYHUB_USER || 'andie';
 
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
-    };
+    const corsHeaders = writeCorsHeaders(request);
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const isWrite = ['POST', 'PUT', 'DELETE'].includes(request.method);
+    if (isWrite && !checkRateLimit(ip)) {
+      return jsonResponse({ error: 'Too Many Requests' }, 429, corsHeaders);
+    }
+
     const method = request.method === 'HEAD' ? 'GET' : request.method;
 
     try {
+      // 0. GET /api/health
+      if (method === 'GET' && pathname === '/api/health') {
+        return jsonResponse({ status: 'ok', user: USER, timestamp: Date.now() }, 200, corsHeaders);
+      }
+
       // 1. GET /api/config
       if (method === 'GET' && pathname === '/api/config') {
-        return jsonResponse({ apiBase: "" }, 200, corsHeaders);
+        return jsonResponse({ apiBase: "", user: USER }, 200, corsHeaders);
       }
 
       // 2. GET /api/projects
@@ -449,14 +497,14 @@ export default {
         const { results } = await env.DB.prepare(
           'SELECT proj, updated_at, files_count, commits_count FROM projects WHERE user = ? ORDER BY updated_at DESC'
         ).bind(USER).all();
-        
+
         const list = results.map(row => ({
           name: row.proj,
           updatedAt: row.updated_at,
           filesCount: row.files_count,
           commitsCount: row.commits_count
         }));
-        
+
         return jsonResponse(list, 200, corsHeaders);
       }
 
@@ -475,17 +523,28 @@ export default {
         const proj = safeProj(pathname.substring('/api/tree/'.length));
         if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
 
-        const paths = await listProjectFiles(env.FILES, USER, proj);
         const wantMeta = searchParams.get('meta') === '1' || searchParams.get('meta') === 'true';
         const wantFlat = searchParams.get('flat') === '1' || searchParams.get('flat') === 'true';
 
-        if (wantFlat) {
-          return jsonResponse(paths, 200, corsHeaders);
+        const lastCommit = await env.DB.prepare(
+          'SELECT hash12 FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
+        ).bind(USER, proj).first();
+
+        const commitHash = lastCommit?.hash12 || 'none';
+        const etag = `"${commitHash}-${wantMeta ? 'meta' : wantFlat ? 'flat' : 'tree'}"`;
+
+        if (request.headers.get('If-None-Match') === etag) {
+          return new Response(null, { status: 304, headers: { ...corsHeaders, 'ETag': etag } });
         }
 
-        const fileList = [];
-        const sizes = {};
+        const paths = await listProjectFiles(env.FILES, USER, proj);
+
+        if (wantFlat) {
+          return jsonResponse(paths, 200, corsHeaders, { 'ETag': etag });
+        }
+
         if (wantMeta) {
+          const fileList = [];
           for (const path of paths) {
             const meta = await getFileMeta(env.FILES, `projects/${USER}/${proj}/${path}`);
             fileList.push({
@@ -497,25 +556,34 @@ export default {
           return jsonResponse({
             repo: `${USER}/${proj}`,
             project: proj,
-            commit: null,
+            commit: commitHash,
             files: fileList,
             count: fileList.length
-          }, 200, corsHeaders);
+          }, 200, corsHeaders, { 'ETag': etag });
         }
 
-        for (const path of paths) {
-          const meta = await getFileMeta(env.FILES, `projects/${USER}/${proj}/${path}`);
-          sizes[path] = meta?.size || 0;
-        }
-
-        const { tree } = buildStructuredTree(paths, sizes);
+        const { tree } = buildStructuredTree(paths);
         return jsonResponse({
           repo: `${USER}/${proj}`,
           project: proj,
           files: paths,
           tree,
           count: paths.length
-        }, 200, corsHeaders);
+        }, 200, corsHeaders, { 'ETag': etag });
+      }
+
+      // GET /api/file/:proj
+      if (method === 'GET' && pathname.startsWith('/api/file/')) {
+        const proj = safeProj(pathname.substring('/api/file/'.length));
+        if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
+        const filePath = safeRelPath(searchParams.get('path') || '');
+        if (!filePath || isBlocked(filePath)) return new Response('Invalid path', { status: 400, headers: corsHeaders });
+        const object = await env.FILES.get(`projects/${USER}/${proj}/${filePath}`);
+        if (!object) return new Response('Not Found', { status: 404, headers: corsHeaders });
+        const headers = new Headers(corsHeaders);
+        headers.set('Content-Type', guessContentType(filePath));
+        headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        return new Response(object.body, { headers });
       }
 
       // 4. GET /api/history/:proj
@@ -527,12 +595,22 @@ export default {
           'SELECT id, hash12, author, message, stats_json, created_at FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 50'
         ).bind(USER, proj).all();
 
+        const filesByCommit = new Map();
+        if (commits.length > 0) {
+          const commitIds = commits.map(c => c.id);
+          const placeholders = commitIds.map(() => '?').join(',');
+          const { results: allFiles } = await env.DB.prepare(
+            `SELECT commit_id, path, change_type FROM commit_files WHERE commit_id IN (${placeholders})`
+          ).bind(...commitIds).all();
+          for (const f of allFiles) {
+            if (!filesByCommit.has(f.commit_id)) filesByCommit.set(f.commit_id, []);
+            filesByCommit.get(f.commit_id).push(f);
+          }
+        }
+
         const history = [];
         for (const c of commits) {
-          const { results: files } = await env.DB.prepare(
-            'SELECT path, change_type FROM commit_files WHERE commit_id = ?'
-          ).bind(c.id).all();
-
+          const files = filesByCommit.get(c.id) || [];
           const changes = { added: [], modified: [], deleted: [] };
           for (const f of files) {
             if (f.change_type === 'added') changes.added.push(f.path);
@@ -555,6 +633,11 @@ export default {
 
       // 5. POST /api/upload/:proj
       if (method === 'POST' && pathname.startsWith('/api/upload/')) {
+        const corsHeaders = writeCorsHeaders(request);
+        if (env.TINYHUB_TOKEN && !checkAuth(request, env)) {
+          return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+        }
+
         const proj = safeProj(pathname.substring('/api/upload/'.length));
         if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
 
@@ -572,6 +655,13 @@ export default {
 
         const tNew = new Map();
         const blocked = [];
+        const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit
+        let encodings = {};
+        try {
+          encodings = JSON.parse(formData.get('encodings') || '{}');
+        } catch (e) {
+          encodings = {};
+        }
 
         for (const [key, value] of formData.entries()) {
           if (value instanceof File) {
@@ -581,9 +671,20 @@ export default {
               blocked.push(normPath);
               continue;
             }
-            if (value.size > 10 * 1024 * 1024) continue; // skip files > 10MB
-            const buf = await value.arrayBuffer();
-            tNew.set(normPath, new Uint8Array(buf));
+            if (value.size > MAX_FILE_SIZE) {
+              return jsonResponse({ error: `File too large: ${value.name} exceeds 50MB limit` }, 413, corsHeaders);
+            }
+            let bytes;
+            if (encodings[normPath] === 'gzip') {
+              const ds = new DecompressionStream('gzip');
+              const stream = value.stream().pipeThrough(ds);
+              const buf = await new Response(stream).arrayBuffer();
+              bytes = new Uint8Array(buf);
+            } else {
+              const buf = await value.arrayBuffer();
+              bytes = new Uint8Array(buf);
+            }
+            tNew.set(normPath, bytes);
           }
         }
 
@@ -596,22 +697,39 @@ export default {
 
         if (mode === 'replace') {
           const oldPaths = await listProjectFiles(env.FILES, USER, proj);
-          for (const p of oldPaths) {
-            await env.FILES.delete(`projects/${USER}/${proj}/${p}`);
+          if (oldPaths.length > 0) {
+            const keys = oldPaths.map(p => `projects/${USER}/${proj}/${p}`);
+            for (let i = 0; i < keys.length; i += 1000) {
+              await env.FILES.delete(keys.slice(i, i + 1000));
+            }
           }
         }
 
-        const currentPaths = mode === 'replace' ? [] : await listProjectFiles(env.FILES, USER, proj);
+        const prefix = `projects/${USER}/${proj}/`;
         const oldHashes = new Map();
-        for (const p of currentPaths) {
-          const meta = await getFileMeta(env.FILES, `projects/${USER}/${proj}/${p}`);
-          if (meta) oldHashes.set(p, meta.sha256);
+        const currentPaths = [];
+        if (mode !== 'replace') {
+          let listResult = await env.FILES.list({ prefix });
+          let allObjects = [...listResult.objects];
+          while (listResult.truncated) {
+            listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
+            allObjects.push(...listResult.objects);
+          }
+          for (const obj of allObjects) {
+            const relPath = obj.key.replace(prefix, '');
+            if (!relPath || isBlocked(relPath)) continue;
+            currentPaths.push(relPath);
+            if (obj.customMetadata?.sha256) {
+              oldHashes.set(relPath, obj.customMetadata.sha256);
+            }
+          }
         }
 
         const added = [];
         const modified = [];
         const deleted = [];
         const saved = [];
+        const writePromises = [];
 
         for (const [path, bytes] of tNew.entries()) {
           const sha = await sha256Bytes(bytes);
@@ -621,25 +739,31 @@ export default {
           } else if (oldSha !== sha) {
             modified.push(path);
           }
-          await putFile(env.FILES, `projects/${USER}/${proj}/${path}`, bytes, { sha256: sha });
+          writePromises.push(putFile(env.FILES, `projects/${USER}/${proj}/${path}`, bytes, { sha256: sha }));
           saved.push(path);
         }
+        await Promise.all(writePromises);
 
         if (incremental) {
-          for (const p of explicitDeletes) {
-            await env.FILES.delete(`projects/${USER}/${proj}/${p}`);
-            deleted.push(p);
+          if (explicitDeletes.length > 0) {
+            const keys = explicitDeletes.map(p => `projects/${USER}/${proj}/${p}`);
+            for (let i = 0; i < keys.length; i += 1000) {
+              await env.FILES.delete(keys.slice(i, i + 1000));
+            }
+            deleted.push(...explicitDeletes);
           }
         } else if (mode === 'push') {
-          for (const p of currentPaths) {
-            if (!tNew.has(p)) {
-              await env.FILES.delete(`projects/${USER}/${proj}/${p}`);
-              deleted.push(p);
+          const toDelete = currentPaths.filter(p => !tNew.has(p));
+          if (toDelete.length > 0) {
+            const keys = toDelete.map(p => `projects/${USER}/${proj}/${p}`);
+            for (let i = 0; i < keys.length; i += 1000) {
+              await env.FILES.delete(keys.slice(i, i + 1000));
             }
+            deleted.push(...toDelete);
           }
         }
 
-        const totalFiles = (await listProjectFiles(env.FILES, USER, proj)).length;
+        const totalFiles = currentPaths.length + added.length - deleted.length;
 
         const stats = {
           added: added.length,
@@ -656,6 +780,10 @@ export default {
         const commitId = crypto.randomUUID();
         const commitHash = (await sha256Hex(`${commitId}:${message}:${Date.now()}`)).substring(0, 12);
         const commitMsg = message || `Push: +${stats.added} ~${stats.modified} -${stats.deleted}`;
+
+        const commitsCountResult = await env.DB.prepare(
+          'SELECT COUNT(*) as count FROM commits WHERE user = ? AND proj = ?'
+        ).bind(USER, proj).first();
 
         const batchStatements = [
           env.DB.prepare(
@@ -682,16 +810,14 @@ export default {
           );
         }
 
+        batchStatements.push(
+          env.DB.prepare(
+            'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
+            'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
+          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, commitsCountResult.count)
+        );
+
         await env.DB.batch(batchStatements);
-
-        const commitsCountResult = await env.DB.prepare(
-          'SELECT COUNT(*) as count FROM commits WHERE user = ? AND proj = ?'
-        ).bind(USER, proj).first();
-
-        await env.DB.prepare(
-          'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
-          'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
-        ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, commitsCountResult.count).run();
 
         return jsonResponse({
           ok: true,
@@ -714,6 +840,7 @@ export default {
 
       // 6. POST /api/commit/:proj
       if (method === 'POST' && pathname.startsWith('/api/commit/')) {
+        const corsHeaders = writeCorsHeaders(request);
         if (!checkAuth(request, env)) return new Response('Unauthorized', { status: 401, headers: corsHeaders });
         const proj = safeProj(pathname.substring('/api/commit/'.length));
         if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
@@ -725,11 +852,23 @@ export default {
         const body = JSON.parse(bodyText);
         const { message, files, deletes } = body || {};
 
-        const currentPaths = await listProjectFiles(env.FILES, USER, proj);
+        const prefix = `projects/${USER}/${proj}/`;
+        let listResult = await env.FILES.list({ prefix });
+        let allObjects = [...listResult.objects];
+        while (listResult.truncated) {
+          listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
+          allObjects.push(...listResult.objects);
+        }
+
         const oldHashes = new Map();
-        for (const p of currentPaths) {
-          const meta = await getFileMeta(env.FILES, `projects/${USER}/${proj}/${p}`);
-          if (meta) oldHashes.set(p, meta.sha256);
+        const currentPaths = [];
+        for (const obj of allObjects) {
+          const relPath = obj.key.replace(prefix, '');
+          if (!relPath || isBlocked(relPath)) continue;
+          currentPaths.push(relPath);
+          if (obj.customMetadata?.sha256) {
+            oldHashes.set(relPath, obj.customMetadata.sha256);
+          }
         }
 
         const added = [];
@@ -760,7 +899,7 @@ export default {
           return jsonResponse({ ok: true, empty: true, message: 'Everything up-to-date', project: proj }, 200, corsHeaders);
         }
 
-        const totalFiles = (await listProjectFiles(env.FILES, USER, proj)).length;
+        const totalFiles = currentPaths.length + added.length - deleted.length;
         const stats = {
           added: added.length,
           modified: modified.length,
@@ -776,6 +915,10 @@ export default {
         const commitId = crypto.randomUUID();
         const commitHash = (await sha256Hex(`${commitId}:${message}:${Date.now()}`)).substring(0, 12);
         const commitMsg = message || `Update: +${stats.added} ~${stats.modified} -${stats.deleted}`;
+
+        const commitsCountResult = await env.DB.prepare(
+          'SELECT COUNT(*) as count FROM commits WHERE user = ? AND proj = ?'
+        ).bind(USER, proj).first();
 
         const batchStatements = [
           env.DB.prepare(
@@ -802,16 +945,14 @@ export default {
           );
         }
 
+        batchStatements.push(
+          env.DB.prepare(
+            'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
+            'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
+          ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, commitsCountResult.count)
+        );
+
         await env.DB.batch(batchStatements);
-
-        const commitsCountResult = await env.DB.prepare(
-          'SELECT COUNT(*) as count FROM commits WHERE user = ? AND proj = ?'
-        ).bind(USER, proj).first();
-
-        await env.DB.prepare(
-          'INSERT INTO projects (user, proj, updated_at, files_count, commits_count) VALUES (?, ?, ?, ?, ?) ' +
-          'ON CONFLICT(user, proj) DO UPDATE SET updated_at = excluded.updated_at, files_count = excluded.files_count, commits_count = excluded.commits_count'
-        ).bind(USER, proj, Math.floor(Date.now() / 1000), totalFiles, commitsCountResult.count).run();
 
         return jsonResponse({
           ok: true,
@@ -830,22 +971,28 @@ export default {
 
       // 7. POST /api/reset/:proj
       if (method === 'POST' && pathname.startsWith('/api/reset/')) {
+        const corsHeaders = writeCorsHeaders(request);
         if (!checkAuth(request, env)) return new Response('Unauthorized', { status: 401, headers: corsHeaders });
         const proj = safeProj(pathname.substring('/api/reset/'.length));
         if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
 
         const paths = await listProjectFiles(env.FILES, USER, proj);
-        for (const p of paths) {
-          await env.FILES.delete(`projects/${USER}/${proj}/${p}`);
+        if (paths.length > 0) {
+          const keys = paths.map(p => `projects/${USER}/${proj}/${p}`);
+          for (let i = 0; i < keys.length; i += 1000) {
+            await env.FILES.delete(keys.slice(i, i + 1000));
+          }
         }
 
-        // Delete from D1
-        const commitsResult = await env.DB.prepare('SELECT id FROM commits WHERE user = ? AND proj = ?').bind(USER, proj).all();
-        for (const c of commitsResult.results) {
-          await env.DB.prepare('DELETE FROM commit_files WHERE commit_id = ?').bind(c.id).run();
-        }
-        await env.DB.prepare('DELETE FROM commits WHERE user = ? AND proj = ?').bind(USER, proj).run();
-        await env.DB.prepare('DELETE FROM projects WHERE user = ? AND proj = ?').bind(USER, proj).run();
+        // Single-batch D1 cleanup
+        await env.DB.batch([
+          env.DB.prepare(
+            'DELETE FROM commit_files WHERE commit_id IN (SELECT id FROM commits WHERE user = ? AND proj = ?)'
+          ).bind(USER, proj),
+          env.DB.prepare('DELETE FROM commits WHERE user = ? AND proj = ?').bind(USER, proj),
+          env.DB.prepare('DELETE FROM projects WHERE user = ? AND proj = ?').bind(USER, proj)
+        ]);
+
         return jsonResponse({ ok: true, project: proj, deleted: paths.length, message: `Wiped ${paths.length} files and D1 records` }, 200, corsHeaders);
       }
 
@@ -874,7 +1021,7 @@ export default {
         const headers = new Headers(corsHeaders);
         headers.set('Content-Type', guessContentType(filepath));
         headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-        
+
         return new Response(object.body, { headers });
       }
 
@@ -895,7 +1042,7 @@ export default {
         let htmlContent = await templateRes.text();
 
         const paths = await listProjectFiles(env.FILES, USER, proj);
-        
+
         // buildNestedTree and renderNestedTree logic
         const buildNestedTree = (items) => {
           const root = {};

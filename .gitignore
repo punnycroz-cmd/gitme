@@ -17,6 +17,7 @@ venv/
 .env
 .env.local
 .env.*
+.dev.vars
 
 # Logs and temp files
 *.log

@@ -40,25 +40,28 @@ if (queryApi) {
 }
 
 async function initConfig() {
-  if (!API_BASE) {
-    try {
-      const res = await fetch('/api/config');
-      const data = await res.json();
-      if (data && data.apiBase) {
-        API_BASE = data.apiBase.replace(/\/$/, '');
+  try {
+    const res = await fetch('/api/config');
+    const data = await res.json();
+    if (data && data.apiBase && !API_BASE) {
+      API_BASE = data.apiBase.replace(/\/$/, '');
+      localStorage.setItem('TINYHUB_API_BASE', API_BASE);
+    }
+    if (data && data.user) {
+      window.TINYHUB_USER = data.user;
+      const userDisplay = document.getElementById('user-display');
+      if (userDisplay) userDisplay.textContent = data.user;
+    }
+  } catch (e) {
+    console.warn('Could not fetch API configuration base:', e);
+    if (!API_BASE && window.location.hostname.endsWith('pages.dev')) {
+      const inputUrl = prompt(
+        'Welcome! Please enter your Cloudflare Worker URL to connect the backend:\n(e.g., https://tinyhub-api.yoursubdomain.workers.dev)'
+      );
+      if (inputUrl) {
+        API_BASE = inputUrl.replace(/\/$/, '');
         localStorage.setItem('TINYHUB_API_BASE', API_BASE);
-      }
-    } catch (e) {
-      console.warn('Could not fetch API configuration base:', e);
-      if (window.location.hostname.endsWith('pages.dev')) {
-        const inputUrl = prompt(
-          'Welcome! Please enter your Cloudflare Worker URL to connect the backend:\n(e.g., https://tinyhub-api.yoursubdomain.workers.dev)'
-        );
-        if (inputUrl) {
-          API_BASE = inputUrl.replace(/\/$/, '');
-          localStorage.setItem('TINYHUB_API_BASE', API_BASE);
-          window.location.reload();
-        }
+        window.location.reload();
       }
     }
   }
@@ -165,7 +168,54 @@ function relativeProjectPath(file, proj) {
     path = path.slice(proj.length + 1);
   }
   return path;
+} const HASH_CACHE_DB = 'tinyhub-hash-cache';
+const HASH_CACHE_STORE = 'hashes';
+
+function openHashCacheDB() {
+  return new Promise((resolve) => {
+    if (!window.indexedDB) return resolve(null);
+    const req = window.indexedDB.open(HASH_CACHE_DB, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(HASH_CACHE_STORE)) {
+        db.createObjectStore(HASH_CACHE_STORE, { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => {
+      console.warn('IndexedDB hash cache unavailable', e);
+      resolve(null);
+    };
+  });
 }
+
+async function getCachedHash(db, key) {
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(HASH_CACHE_STORE, 'readonly');
+      const store = tx.objectStore(HASH_CACHE_STORE);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+async function putCachedHash(db, key, data) {
+  if (!db) return;
+  try {
+    const tx = db.transaction(HASH_CACHE_STORE, 'readwrite');
+    const store = tx.objectStore(HASH_CACHE_STORE);
+    store.put({ key, ...data });
+  } catch (e) {
+    console.warn('Failed to save hash to IndexedDB', e);
+  }
+}
+
+const remoteTreeCache = new Map();
 
 async function sha256HexFile(file) {
   const buf = await file.arrayBuffer();
@@ -183,7 +233,7 @@ function defaultPushMessage(stats) {
  * Classify local files vs remote tip meta.
  * remoteMeta: { path, size, sha256 }[] or path strings
  */
-async function classifyLocalVsRemote(incoming, remoteFiles, mode) {
+async function classifyLocalVsRemote(incoming, remoteFiles, mode, proj) {
   const remoteMap = {};
   for (const f of remoteFiles || []) {
     if (typeof f === 'string') {
@@ -197,6 +247,7 @@ async function classifyLocalVsRemote(incoming, remoteFiles, mode) {
   const modified = [];
   const unchanged = [];
   const localPaths = new Set();
+  const db = await openHashCacheDB();
 
   // Hash in parallel batches
   const CONCURRENCY = 8;
@@ -206,12 +257,33 @@ async function classifyLocalVsRemote(incoming, remoteFiles, mode) {
       batch.map(async (item) => {
         localPaths.add(item.path);
         const remote = remoteMap[item.path];
+        const cacheKey = proj ? `${proj}/${item.path}` : item.path;
         let sha = null;
-        try {
-          sha = await sha256HexFile(item.file);
-        } catch (e) {
-          console.warn('hash failed', item.path, e);
+
+        // FAST PATH: reuse cached hash if size and lastModified match
+        const cached = await getCachedHash(db, cacheKey);
+        if (
+          cached &&
+          cached.size === item.file.size &&
+          cached.lastModified === item.file.lastModified &&
+          cached.hash
+        ) {
+          sha = cached.hash;
+        } else {
+          try {
+            sha = await sha256HexFile(item.file);
+            if (sha) {
+              await putCachedHash(db, cacheKey, {
+                size: item.file.size,
+                lastModified: item.file.lastModified,
+                hash: sha
+              });
+            }
+          } catch (e) {
+            console.warn('hash failed', item.path, e);
+          }
         }
+
         item.sha256 = sha;
         item.size = item.file.size;
 
@@ -251,13 +323,14 @@ async function classifyLocalVsRemote(incoming, remoteFiles, mode) {
     modified,
     deleted,
     unchanged,
+    totalFiles: incoming.length,
     stats: {
       added: added.length,
       modified: modified.length,
       deleted: deleted.length,
       unchanged: unchanged.length,
-      totalFiles: incoming.length,
-    },
+      totalFiles: incoming.length
+    }
   };
 }
 
@@ -308,6 +381,7 @@ function renderProjects(projects) {
       const commitsCount =
         p.commitsCount !== undefined ? ` · ${p.commitsCount} commits` : '';
       const filesCount = p.filesCount !== undefined ? ` · ${p.filesCount} files` : '';
+      const u = encodeURIComponent(window.TINYHUB_USER || 'andie');
       return `
       <div class="project-row">
         <div class="project-info">
@@ -315,8 +389,8 @@ function renderProjects(projects) {
           <div class="project-meta">Updated ${date}${filesCount}${commitsCount}</div>
         </div>
         <div class="project-actions" style="display: flex; align-items: center; gap: 12px;">
-          <a href="/p/andie/${name}/">Browse</a>
-          <a href="/dump/andie/${name}/">AI Dump</a>
+          <a href="/p/${u}/${name}/">Browse</a>
+          <a href="/dump/${u}/${name}/">AI Dump</a>
           <button class="btn-delete-proj" data-proj="${name}" style="background: transparent; border: none; color: var(--error, #e11d48); cursor: pointer; font-size: 13px; font-weight: 500; padding: 4px 8px; border-radius: var(--radius-sm);">Delete</button>
         </div>
       </div>
@@ -356,11 +430,22 @@ async function handleIncomingFiles(fileList) {
 
   let remoteFiles = [];
   let remoteExists = false;
+  const cachedTree = remoteTreeCache.get(proj);
+  const headers = {};
+  if (cachedTree && cachedTree.etag) {
+    headers['If-None-Match'] = cachedTree.etag;
+  }
+
   try {
     const treeRes = await fetch(`${API_BASE}/api/tree/${encodeURIComponent(proj)}?meta=1`, {
+      headers,
       cache: 'no-store',
     });
-    if (treeRes.ok) {
+    if (treeRes.status === 304 && cachedTree) {
+      remoteFiles = cachedTree.files;
+      remoteExists = remoteFiles.length > 0;
+    } else if (treeRes.ok) {
+      const etag = treeRes.headers.get('ETag');
       const data = await treeRes.json();
       if (Array.isArray(data)) {
         remoteFiles = data.map((p) => ({ path: p, size: null, sha256: null }));
@@ -368,6 +453,9 @@ async function handleIncomingFiles(fileList) {
         remoteFiles = data.files;
       }
       remoteExists = remoteFiles.length > 0;
+      if (etag) {
+        remoteTreeCache.set(proj, { etag, files: remoteFiles });
+      }
     }
   } catch (e) {
     console.warn('tree meta failed', e);
@@ -381,7 +469,7 @@ async function handleIncomingFiles(fileList) {
   const modeSelect = document.getElementById('push-mode');
   const mode = (modeSelect && modeSelect.value) || 'push';
 
-  const classification = await classifyLocalVsRemote(incomingPaths, remoteFiles, mode);
+  const classification = await classifyLocalVsRemote(incomingPaths, remoteFiles, mode, proj);
 
   // First push to empty remote: still show confirm with all as added
   pendingFiles = fileList;
@@ -414,9 +502,9 @@ function showPushModal(proj, classification, remoteExists, blockedCount) {
       (empty
         ? `<br><strong>Everything up-to-date</strong> — no commit will be created.`
         : `<br>Changes: <span class="diff-added">+${stats.added}</span> ` +
-          `<span class="diff-changed">~${stats.modified}</span> ` +
-          `<span class="diff-removed">-${stats.deleted}</span>` +
-          (unchanged.length ? ` · ${unchanged.length} unchanged` : ''));
+        `<span class="diff-changed">~${stats.modified}</span> ` +
+        `<span class="diff-removed">-${stats.deleted}</span>` +
+        (unchanged.length ? ` · ${unchanged.length} unchanged` : ''));
   }
 
   let diffHtml = '';
@@ -434,6 +522,11 @@ function showPushModal(proj, classification, remoteExists, blockedCount) {
     msgInput.disabled = empty;
   }
 
+  const tokenInput = document.getElementById('push-token');
+  if (tokenInput) {
+    tokenInput.value = localStorage.getItem('TINYHUB_TOKEN') || '';
+  }
+
   if (okBtn) {
     okBtn.textContent = empty ? 'Close' : 'Push';
     okBtn.classList.toggle('btn-danger', !empty && deleted.length > 0);
@@ -444,15 +537,33 @@ function showPushModal(proj, classification, remoteExists, blockedCount) {
   status.textContent = empty ? 'Everything up-to-date.' : 'Review changes, then Push.';
 }
 
+const TEXT_EXT_RE = /\.(js|ts|jsx|tsx|css|html|json|md|txt|xml|svg|yaml|yml|toml|py|rb|go|rs|java|c|cpp|h|sh|sql)$/i;
+
+async function compressForUpload(file) {
+  if (!TEXT_EXT_RE.test(file.name) || file.size < 512) {
+    return { body: file, encoding: 'identity' };
+  }
+  try {
+    const compressedStream = file.stream().pipeThrough(new CompressionStream('gzip'));
+    const compressed = await new Response(compressedStream).blob();
+    if (compressed.size < file.size * 0.8) {
+      return { body: compressed, encoding: 'gzip' };
+    }
+  } catch (e) { /* fallback to identity */ }
+  return { body: file, encoding: 'identity' };
+}
+
 function performPush(fileList, proj, blockedLocal, message, mode) {
   const fd = new FormData();
   let filesToUploadCount = 0;
+  const encodings = {};
 
   const classification = pendingClassification || { added: [], modified: [], deleted: [], unchanged: [] };
   const toUpload = new Set([...classification.added, ...classification.modified]);
   const deleted = classification.deleted || [];
   const isIncremental = (toUpload.size > 0 || deleted.length > 0);
 
+  const uploadTasks = [];
   for (const f of fileList) {
     const full = f.webkitRelativePath || f.name;
     if (isBlocked(full)) continue;
@@ -461,92 +572,117 @@ function performPush(fileList, proj, blockedLocal, message, mode) {
 
     if (isIncremental && !toUpload.has(path)) continue;
 
-    fd.append('files', f, path);
+    uploadTasks.push({ file: f, path });
+  }
+
+  Promise.all(uploadTasks.map(async ({ file, path }) => {
+    const { body, encoding } = await compressForUpload(file);
+    fd.append('files', body, path);
+    if (encoding === 'gzip') encodings[path] = 'gzip';
     filesToUploadCount++;
-  }
-  fd.append('message', message || '');
-  fd.append('mode', mode || 'push');
-  
-  if (isIncremental) {
-    fd.append('incremental', '1');
-    fd.append('deletes', JSON.stringify(deleted));
-    status.textContent = `Pushing ${filesToUploadCount} changed files to ${proj}… (${classification.unchanged?.length || 0} unchanged skipped)`;
-  } else {
-    status.textContent = `Pushing ${filesToUploadCount} files to ${proj}…`;
-  }
+  })).then(() => {
+    fd.append('message', message || '');
+    fd.append('mode', mode || 'push');
+    fd.append('encodings', JSON.stringify(encodings));
 
-  fetch(`${API_BASE}/api/upload/${encodeURIComponent(proj)}`, {
-    method: 'POST',
-    body: fd
-  })
-    .then((r) => {
-      if (!r.ok) {
-        return r
-          .json()
-          .catch(() => ({ error: `Push failed with status ${r.status}` }))
-          .then((errData) => {
-            throw new Error(errData.error || errData.message || `Push failed with status ${r.status}`);
-          });
-      }
-      return r.json();
+    if (isIncremental) {
+      fd.append('incremental', '1');
+      fd.append('deletes', JSON.stringify(deleted));
+      status.textContent = `Pushing ${filesToUploadCount} changed files to ${proj}… (${classification.unchanged?.length || 0} unchanged skipped)`;
+    } else {
+      status.textContent = `Pushing ${filesToUploadCount} files to ${proj}…`;
+    }
+
+    const uploadHeaders = {};
+    const token = localStorage.getItem('TINYHUB_TOKEN') || '';
+    if (token) {
+      uploadHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
+    fetch(`${API_BASE}/api/upload/${encodeURIComponent(proj)}`, {
+      method: 'POST',
+      headers: uploadHeaders,
+      body: fd
     })
-    .then(async (data) => {
-      const combinedBlocked = [...blockedLocal, ...(data.blocked || [])];
-      const c = data.commit || {};
-      const st = data.stats || {};
-      const commitHash = c.hash || '';
-      const vParam = commitHash ? `?v=${commitHash}` : `?v=${Date.now()}`;
+      .then((r) => {
+        if (!r.ok) {
+          return r
+            .json()
+            .catch(() => ({ error: `Push failed with status ${r.status}` }))
+            .then((errData) => {
+              throw new Error(errData.error || errData.message || `Push failed with status ${r.status}`);
+            });
+        }
+        return r.json();
+      })
+      .then(async (data) => {
+        const combinedBlocked = [...blockedLocal, ...(data.blocked || [])];
+        const c = data.commit || {};
+        const st = data.stats || {};
+        const commitHash = c.hash || '';
+        const vParam = commitHash ? `?v=${commitHash}` : `?v=${Date.now()}`;
 
-      if (data.empty) {
-        status.innerHTML =
-          `<strong>Everything up-to-date</strong> — nothing to push to <code>${escapeHtml(proj)}</code>.` +
-          (combinedBlocked.length
-            ? `<br>Blocked: ${escapeHtml(combinedBlocked.slice(0, 8).join(', '))}`
-            : '') +
-          `<br><a href="/p/andie/${escapeHtml(proj)}/${vParam}">Browse →</a> · <a href="/dump/andie/${escapeHtml(proj)}/${vParam}"><strong>AI dump →</strong></a>` +
-          `<div style="margin-top:12px; display:flex; gap:8px;">` +
-          `  <a class="btn" href="/dump/andie/${escapeHtml(proj)}/${vParam}">Copy Full</a>` +
-          `  <a class="btn btn-secondary" href="/dump/andie/${escapeHtml(proj)}/?mode=delta&v=${commitHash || Date.now()}">Copy Delta</a>` +
-          `  <a class="btn btn-secondary" href="/dump/andie/${escapeHtml(proj)}/?path=public&mode=delta&v=${commitHash || Date.now()}">Copy public/ only</a>` +
-          `</div>`;
-      } else {
-        status.innerHTML =
-          `<strong>Pushed</strong> <code>${escapeHtml(c.hash || '')}</code> — ${escapeHtml(c.message || data.message || '')}<br>` +
-          `<span class="diff-added">+${st.added ?? 0}</span> ` +
-          `<span class="diff-changed">~${st.modified ?? 0}</span> ` +
-          `<span class="diff-removed">-${st.deleted ?? 0}</span>` +
-          (combinedBlocked.length
-            ? `<br>Blocked ${combinedBlocked.length}: ${escapeHtml(combinedBlocked.slice(0, 8).join(', '))}`
-            : '') +
-          `<br><a href="/p/andie/${escapeHtml(proj)}/${vParam}">Browse →</a> · <a href="/dump/andie/${escapeHtml(proj)}/${vParam}"><strong>AI dump →</strong></a>` +
-          `<div style="margin-top:12px; display:flex; gap:8px;">` +
-          `  <a class="btn" href="/dump/andie/${escapeHtml(proj)}/${vParam}">Copy Full</a>` +
-          `  <a class="btn btn-secondary" href="/dump/andie/${escapeHtml(proj)}/?mode=delta&v=${commitHash || Date.now()}">Copy Delta</a>` +
-          `  <a class="btn btn-secondary" href="/dump/andie/${escapeHtml(proj)}/?path=public&mode=delta&v=${commitHash || Date.now()}">Copy public/ only</a>` +
-          `</div>`;
-      }
+        const curUser = encodeURIComponent(window.TINYHUB_USER || 'andie');
+        if (data.empty) {
+          status.innerHTML =
+            `<strong>Everything up-to-date</strong> — nothing to push to <code>${escapeHtml(proj)}</code>.` +
+            (combinedBlocked.length
+              ? `<br>Blocked: ${escapeHtml(combinedBlocked.slice(0, 8).join(', '))}`
+              : '') +
+            `<br><a href="/p/${curUser}/${escapeHtml(proj)}/${vParam}">Browse →</a> · <a href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}"><strong>AI dump →</strong></a>` +
+            `<div style="margin-top:12px; display:flex; gap:8px;">` +
+            `  <a class="btn" href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}">Copy Full</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?mode=delta&v=${commitHash || Date.now()}">Copy Delta</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?path=public&mode=delta&v=${commitHash || Date.now()}">Copy public/ only</a>` +
+            `</div>`;
+        } else {
+          status.innerHTML =
+            `<strong>Pushed</strong> <code>${escapeHtml(c.hash || '')}</code> — ${escapeHtml(c.message || data.message || '')}<br>` +
+            `<span class="diff-added">+${st.added ?? 0}</span> ` +
+            `<span class="diff-changed">~${st.modified ?? 0}</span> ` +
+            `<span class="diff-removed">-${st.deleted ?? 0}</span>` +
+            (combinedBlocked.length
+              ? `<br>Blocked ${combinedBlocked.length}: ${escapeHtml(combinedBlocked.slice(0, 8).join(', '))}`
+              : '') +
+            `<br><a href="/p/${curUser}/${escapeHtml(proj)}/${vParam}">Browse →</a> · <a href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}"><strong>AI dump →</strong></a>` +
+            `<div style="margin-top:12px; display:flex; gap:8px;">` +
+            `  <a class="btn" href="/dump/${curUser}/${escapeHtml(proj)}/${vParam}">Copy Full</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?mode=delta&v=${commitHash || Date.now()}">Copy Delta</a>` +
+            `  <a class="btn btn-secondary" href="/dump/${curUser}/${escapeHtml(proj)}/?path=public&mode=delta&v=${commitHash || Date.now()}">Copy public/ only</a>` +
+            `</div>`;
+        }
 
-      try {
-        const tipRes = await fetch(`${API_BASE}/api/tip/${encodeURIComponent(proj)}`);
-        if (tipRes.ok) {
-          const tip = await tipRes.json();
-          if (commitHash && tip.commit !== commitHash) {
-            status.innerHTML += `<br><span style="color:var(--error, #e11d48); font-weight: 500;">⚠️ Database tip lag: expected ${commitHash}, got ${tip.commit} in database. Reload to sync.</span>`;
+        try {
+          const tipRes = await fetch(`${API_BASE}/api/tip/${encodeURIComponent(proj)}`);
+          if (tipRes.ok) {
+            const tip = await tipRes.json();
+            if (commitHash && tip.commit !== commitHash) {
+              status.innerHTML += `<br><span style="color:var(--error, #e11d48); font-weight: 500;">⚠️ Database tip lag: expected ${commitHash}, got ${tip.commit} in database. Reload to sync.</span>`;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to verify D1 tip freshness:', e);
+        }
+
+        if (folder) folder.value = '';
+        if (projInput) delete projInput.dataset.userEdited;
+        remoteTreeCache.delete(proj);
+        setTimeout(loadProjects, 800);
+      })
+      .catch((err) => {
+        if (err.message.includes('401') || err.message.toLowerCase().includes('unauthorized')) {
+          const inputToken = prompt('Authentication required (401 Unauthorized).\nPlease enter your TINYHUB_TOKEN:');
+          if (inputToken && inputToken.trim()) {
+            localStorage.setItem('TINYHUB_TOKEN', inputToken.trim());
+            status.textContent = 'Token saved. Retrying push…';
+            performPush(fileList, proj, blockedLocal, message, mode);
+            return;
           }
         }
-      } catch (e) {
-        console.error('Failed to verify D1 tip freshness:', e);
-      }
-
-      if (folder) folder.value = '';
-      if (projInput) delete projInput.dataset.userEdited;
-      setTimeout(loadProjects, 800);
-    })
-    .catch((err) => {
-      status.textContent = `Push failed: ${err.message}`;
-      // reload projects in case optimistic state is stale
-      setTimeout(loadProjects, 500);
-    });
+        status.textContent = `Push failed: ${err.message}`;
+        setTimeout(loadProjects, 500);
+      });
+  });
 }
 
 const cancelBtn = document.getElementById('confirm-cancel');
@@ -578,8 +714,14 @@ if (okBtn) {
 
     const msgInput = document.getElementById('push-message');
     const modeSelect = document.getElementById('push-mode');
+    const tokenInput = document.getElementById('push-token');
+
     const message = msgInput ? msgInput.value.trim() : '';
     const mode = modeSelect ? modeSelect.value : 'push';
+
+    if (tokenInput && tokenInput.value.trim()) {
+      localStorage.setItem('TINYHUB_TOKEN', tokenInput.value.trim());
+    }
 
     performPush(pendingFiles, pendingProj, pendingBlocked, message, mode);
     pendingFiles = null;
@@ -614,7 +756,7 @@ if (modeSelectEl) {
         const data = await treeRes.json();
         remoteFiles = Array.isArray(data) ? data.map((p) => ({ path: p })) : data.files || [];
       }
-    } catch (_) {}
+    } catch (_) { }
     pendingClassification = await classifyLocalVsRemote(
       incomingPaths,
       remoteFiles,
@@ -643,11 +785,11 @@ function openDeleteModal(projName) {
   deleteProjName.textContent = projName;
   deleteConfirmInput.value = '';
   deleteConfirmInput.placeholder = projName;
-  
+
   // Pre-fill token if stored in localStorage
   const storedToken = localStorage.getItem('TINYHUB_TOKEN') || '';
   deleteTokenInput.value = storedToken;
-  
+
   deleteConfirmBtn.disabled = true;
   deleteModal.style.display = 'flex';
 }
@@ -670,10 +812,10 @@ if (deleteConfirmBtn) {
     if (token) {
       localStorage.setItem('TINYHUB_TOKEN', token);
     }
-    
+
     deleteConfirmBtn.disabled = true;
     deleteConfirmBtn.textContent = 'Deleting…';
-    
+
     try {
       const res = await fetch(`${API_BASE}/api/reset/${encodeURIComponent(projectToDelete)}`, {
         method: 'POST',
@@ -681,11 +823,11 @@ if (deleteConfirmBtn) {
           'Authorization': `Bearer ${token}`
         }
       });
-      
+
       if (!res.ok) {
         throw new Error(await res.text() || `HTTP ${res.status}`);
       }
-      
+
       deleteModal.style.display = 'none';
       await loadProjects();
       alert(`Project ${projectToDelete} has been successfully deleted.`);
