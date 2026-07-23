@@ -112,6 +112,16 @@
 GET /dump/&lt;user&gt;/my-app/
 # Open that URL → Copy All → paste into the chat
 
+# EFFICIENT for AI — project structure only (no content, ~2KB)
+GET /dump/&lt;user&gt;/my-app/?mode=summary
+
+# Token-budgeted dump (only smallest/most-changed files fit budget)
+GET /dump/&lt;user&gt;/my-app/?max_tokens=10000
+
+# Search for code across project (like grep)
+GET /api/search/my-app?q=checkAuth
+GET /api/search/my-app?q=checkAuth&regex=1&path=src
+
 # Or one JSON blob of all files
 GET /api/bundle/my-app
 GET /dump/&lt;user&gt;/my-app/?format=json

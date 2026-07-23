@@ -249,6 +249,117 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
   let fileCount = 0;
   const ALWAYS_INCLUDE = new Set(['wrangler.toml']);
 
+  // Summary mode: return file list with sizes/lines, no content
+  if (mode === 'summary') {
+    const prefix = `projects/${user}/${proj}/`;
+    let listResult = await env.FILES.list({ prefix });
+    let allObjects = [...listResult.objects];
+    while (listResult.truncated) {
+      listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
+      allObjects.push(...listResult.objects);
+    }
+    const summaryFiles = [];
+    for (const obj of allObjects) {
+      const path = obj.key.replace(prefix, '');
+      if (!path || isBlocked(path)) continue;
+      if (cleanPathFilter) {
+        const cleanFilter = cleanPathFilter.replace(/\/$/, '');
+        const prefix2 = cleanFilter + '/';
+        if (!path.startsWith(prefix2) && path !== cleanFilter) continue;
+      }
+      const ext = path.split('.').pop().toLowerCase();
+      summaryFiles.push({
+        path,
+        size: obj.size || 0,
+        type: ext,
+        lines: parseInt(obj.customMetadata?.lines || '0') || Math.ceil((obj.size || 0) / 50)
+      });
+    }
+    summaryFiles.sort((a, b) => a.path.localeCompare(b.path));
+
+    if (forceJson || wantsJson(request, searchParams)) {
+      return jsonResponse({
+        repo: `${user}/${proj}`,
+        type: 'summary',
+        commit: lastCommit?.hash12 || null,
+        fileCount: summaryFiles.length,
+        totalBytes: summaryFiles.reduce((s, f) => s + f.size, 0),
+        files: summaryFiles,
+        urls: {
+          html: `/dump/${user}/${proj}/`,
+          browser: `/p/${user}/${proj}/`
+        }
+      }, 200, corsHeaders);
+    }
+
+    // HTML summary
+    const templateRes = await env.ASSETS.fetch(new Request(new URL('/dump-template.html', request.url)));
+    if (!templateRes.ok) return new Response('Dump template not found', { status: 500 });
+    let tmpl = await templateRes.text();
+    let sectionsHtml = '';
+    for (const f of summaryFiles) {
+      const icon = getFileIcon(f.path);
+      const sizeStr = f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(1)} KB`;
+      sectionsHtml += `<section class="dump-section"><div class="dump-path">${icon}<span>${escapeHtml(f.path)}</span></div><div class="dump-code" style="padding: 8px 12px; font-size: 12px; color: var(--text-muted);">${escapeHtml(sizeStr)} · ${f.lines} lines · <a href="/api/file/${proj}?path=${encodeURIComponent(f.path)}" target="_blank">read</a></div></section>`;
+    }
+    if (!sectionsHtml) sectionsHtml = '<div class="dump-empty">No files found in this project.</div>';
+    const title = `TinyHub — ${user}/${proj} (summary)`;
+    tmpl = tmpl.replace('<!-- SSR_TITLE -->', escapeHtml(title));
+    tmpl = tmpl.replace('<!-- SSR_DUMP_CHIPS -->', `<div class="dump-chips"><span class="dump-chip">${summaryFiles.length} files</span><span class="dump-chip">${(summaryFiles.reduce((s, f) => s + f.size, 0) / 1024).toFixed(1)} KB</span><span class="dump-chip">commit ${lastCommit?.hash12 || 'none'}</span></div>`);
+    tmpl = tmpl.replace('<!-- SSR_DUMP_BANNER -->', `<div class="dump-banner"><p>Project structure overview. Click "read" on any file to view its content.</p></div>`);
+    tmpl = tmpl.replace('<!-- SSR_DUMP_CONTENT -->', sectionsHtml);
+    tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${user}/${proj}/`);
+    tmpl = tmpl.replace('<!-- SSR_RAW_DUMP_TEXT -->', escapeHtml(`// Summary: ${user}/${proj}\n// ${summaryFiles.length} files, ${summaryFiles.reduce((s, f) => s + f.size, 0)} bytes total\n`));
+    tmpl = tmpl.replace('<!-- SSR_COMMIT_HASH -->', lastCommit?.hash12 || 'none');
+    const etag = `"${lastCommit?.hash12 || 'none'}-summary"`;
+    if (request.headers.get('If-None-Match') === etag) {
+      return new Response(null, { status: 304, headers: { ETag: etag, ...corsHeaders } });
+    }
+    return new Response(tmpl, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'ETag': etag
+      }
+    });
+  }
+
+  // Token budget: pre-calculate from sizes, filter before downloading content
+  const maxTokens = parseInt(searchParams.get('max_tokens') || '0');
+  if (maxTokens > 0) {
+    const budgetBytes = maxTokens * 4;
+    const sizeMap = new Map();
+    const prefix = `projects/${user}/${proj}/`;
+    let listResult = await env.FILES.list({ prefix });
+    let allObjects = [...listResult.objects];
+    while (listResult.truncated) {
+      listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
+      allObjects.push(...listResult.objects);
+    }
+    for (const obj of allObjects) {
+      const path = obj.key.replace(prefix, '');
+      if (path) sizeMap.set(path, obj.size || 0);
+    }
+    const sorted = [...filesToShow].sort((a, b) => {
+      const aP = ALWAYS_INCLUDE.has(a) ? 0 : 1;
+      const bP = ALWAYS_INCLUDE.has(b) ? 0 : 1;
+      if (aP !== bP) return aP - bP;
+      return (sizeMap.get(a) || 0) - (sizeMap.get(b) || 0);
+    });
+    let usedBytes = 0;
+    const included = [];
+    for (const path of sorted) {
+      const size = sizeMap.get(path) || 0;
+      if (usedBytes + size > budgetBytes && !ALWAYS_INCLUDE.has(path)) {
+        skipped.push({ path, reason: 'token_budget', size });
+      } else {
+        included.push(path);
+        usedBytes += size;
+      }
+    }
+    filesToShow = included;
+  }
+
   for (let i = 0; i < filesToShow.length; i += R2_CONCURRENCY) {
     const batch = filesToShow.slice(i, i + R2_CONCURRENCY);
     await Promise.all(
@@ -315,6 +426,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
       stats: isDeltaMode ? deltaStats : { added: filesToShow.length, modified: 0, deleted: 0, unchanged: 0 },
       fileCount: Object.keys(files).length,
       totalBytes,
+      tokenEstimate: Math.floor(totalBytes / 4),
       files,
       deleted: deletedFiles,
       skipped,
@@ -595,6 +707,92 @@ export default {
         return new Response(object.body, { headers });
       }
 
+      // GET /api/search/:proj
+      if (method === 'GET' && pathname.startsWith('/api/search/')) {
+        const proj = safeProj(pathname.substring('/api/search/'.length));
+        if (!proj) return new Response('Invalid project name', { status: 400, headers: corsHeaders });
+        const query = searchParams.get('q') || '';
+        if (!query) return jsonResponse({ error: 'Missing ?q= parameter' }, 400, corsHeaders);
+        const useRegex = searchParams.get('regex') === '1';
+        const maxMatches = parseInt(searchParams.get('max') || '50');
+        const pathFilter = searchParams.get('path') ? safeRelPath(searchParams.get('path')) : null;
+
+        const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+        if (!checkRateLimit(ip + ':search', 10, 60_000)) {
+          return jsonResponse({ error: 'Search rate limit: 10/min. Use /api/file for targeted reads.' }, 429, corsHeaders);
+        }
+
+        const prefix = `projects/${USER}/${proj}/`;
+        let listResult = await env.FILES.list({ prefix });
+        let allObjects = [...listResult.objects];
+        while (listResult.truncated) {
+          listResult = await env.FILES.list({ prefix, cursor: listResult.cursor });
+          allObjects.push(...listResult.objects);
+        }
+
+        let searchable = allObjects.filter(obj => {
+          const relPath = obj.key.replace(prefix, '');
+          if (!relPath || isBlocked(relPath)) return false;
+          if (obj.size > 256 * 1024) return false;
+          if (pathFilter) {
+            const cleanFilter = pathFilter.replace(/\/$/, '');
+            const p = cleanFilter + '/';
+            if (!relPath.startsWith(p) && relPath !== cleanFilter) return false;
+          }
+          return true;
+        });
+
+        const MAX_SEARCH_FILES = 100;
+        const truncated = searchable.length > MAX_SEARCH_FILES;
+        if (truncated) searchable = searchable.slice(0, MAX_SEARCH_FILES);
+
+        let matcher;
+        if (useRegex) {
+          try { matcher = new RegExp(query, 'i'); }
+          catch (e) { return jsonResponse({ error: 'Invalid regex: ' + e.message }, 400, corsHeaders); }
+        }
+
+        const matches = [];
+        const SEARCH_CONCURRENCY = 8;
+        for (let i = 0; i < searchable.length; i += SEARCH_CONCURRENCY) {
+          if (matches.length >= maxMatches) break;
+          const batch = searchable.slice(i, i + SEARCH_CONCURRENCY);
+          await Promise.all(batch.map(async (obj) => {
+            if (matches.length >= maxMatches) return;
+            const relPath = obj.key.replace(prefix, '');
+            try {
+              const object = await env.FILES.get(obj.key);
+              if (!object) return;
+              const text = await object.text();
+              const lines = text.split('\n');
+              for (let j = 0; j < lines.length; j++) {
+                if (matches.length >= maxMatches) break;
+                const line = lines[j];
+                const isMatch = useRegex ? matcher.test(line) : line.toLowerCase().includes(query.toLowerCase());
+                if (isMatch) {
+                  matches.push({
+                    path: relPath,
+                    line: j + 1,
+                    snippet: line.length > 200 ? line.substring(0, 200) + '…' : line
+                  });
+                }
+              }
+            } catch (e) { /* skip unreadable files */ }
+          }));
+        }
+
+        return jsonResponse({
+          repo: `${USER}/${proj}`,
+          project: proj,
+          query,
+          matchCount: matches.length,
+          matches,
+          filesSearched: searchable.length,
+          filesTotal: allObjects.length,
+          truncated: truncated ? `Search limited to first ${MAX_SEARCH_FILES} files` : false
+        }, 200, corsHeaders);
+      }
+
       // 4. GET /api/history/:proj
       if (method === 'GET' && pathname.startsWith('/api/history/')) {
         const proj = safeProj(pathname.substring('/api/history/'.length));
@@ -764,7 +962,7 @@ export default {
           } else if (oldSha !== sha) {
             modified.push(path);
           }
-          writePromises.push(putFile(env.FILES, `projects/${USER}/${proj}/${path}`, bytes, { sha256: sha }));
+          writePromises.push(putFile(env.FILES, `projects/${USER}/${proj}/${path}`, bytes, { sha256: sha, lines: String(new TextDecoder('utf-8', { fatal: false }).decode(bytes).split('\n').length) }));
           saved.push(path);
         }
         await Promise.all(writePromises);
@@ -909,7 +1107,7 @@ export default {
           const oldSha = oldHashes.get(safePath);
           if (!oldSha) added.push(safePath);
           else if (oldSha !== sha) modified.push(safePath);
-          await putFile(env.FILES, `projects/${USER}/${proj}/${safePath}`, bytes, { sha256: sha });
+          await putFile(env.FILES, `projects/${USER}/${proj}/${safePath}`, bytes, { sha256: sha, lines: String(new TextDecoder('utf-8', { fatal: false }).decode(bytes).split('\n').length) });
           saved.push(safePath);
         }
 
