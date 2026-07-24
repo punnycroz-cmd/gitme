@@ -47,3 +47,6 @@ target/
 # Python cache
 .mypy_cache/
 .pytest_cache/
+
+# Cloudflare Wrangler state
+.wrangler/
