@@ -23,6 +23,11 @@ const rateLimitMiddleware = async (request, env) => {
 
 router.all('*', rateLimitMiddleware);
 
+// Handle CORS preflight requests
+router.options('*', (request) => {
+  return new Response(null, { status: 204, headers: writeCorsHeaders(request) });
+});
+
 // Define router endpoints
 router.get('/api/health', getHealth);
 router.get('/api/config', getConfig);
@@ -59,7 +64,7 @@ router.all('*', async (request, env) => {
 export default {
   async fetch(request, env, ctx) {
     try {
-      return await router.handle(request, env, ctx);
+      return await router.fetch(request, env, ctx);
     } catch (err) {
       console.error(err);
       const corsHeaders = writeCorsHeaders(request);

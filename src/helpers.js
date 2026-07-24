@@ -99,21 +99,11 @@ export function checkAuth(request, env) {
 }
 
 export function writeCorsHeaders(request) {
-  const base = {
+  return {
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
   };
-  const origin = request.headers.get('Origin');
-  if (origin) {
-    try {
-      const originHost = new URL(origin).host;
-      const requestHost = new URL(request.url).host;
-      if (originHost === requestHost) {
-        return { 'Access-Control-Allow-Origin': origin, ...base };
-      }
-    } catch { }
-  }
-  return base;
 }
 
 export function buildStructuredTree(paths, sizes = {}) {
