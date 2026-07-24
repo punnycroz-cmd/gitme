@@ -306,8 +306,8 @@ async function classifyLocalVsRemote(incoming, remoteFiles, mode, proj) {
           remote.size != null &&
           remote.size === item.file.size
         ) {
-          // Same size but no remote hash — still treat as modified (server will no-op if equal)
-          modified.push(item.path);
+          // Same size but no remote hash — assume unchanged (all files have sha256 metadata since v2)
+          unchanged.push(item.path);
         } else {
           modified.push(item.path);
         }

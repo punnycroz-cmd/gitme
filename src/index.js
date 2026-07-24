@@ -155,7 +155,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
   }
 
   const lastCommit = await env.DB.prepare(
-    'SELECT id, hash12, parent_hash12, message, stats_json FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
+    'SELECT id, hash12, parent_hash12, message, stats_json, created_at FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
   ).bind(user, proj).first();
 
   let changed = [];
@@ -283,6 +283,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
         repo: `${user}/${proj}`,
         type: 'summary',
         commit: lastCommit?.hash12 || null,
+        createdAt: lastCommit?.created_at || null,
         fileCount: summaryFiles.length,
         totalBytes: summaryFiles.reduce((s, f) => s + f.size, 0),
         files: summaryFiles,
@@ -312,6 +313,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
     tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${user}/${proj}/`);
     tmpl = tmpl.replace('<!-- SSR_RAW_DUMP_TEXT -->', escapeHtml(`// Summary: ${user}/${proj}\n// ${summaryFiles.length} files, ${summaryFiles.reduce((s, f) => s + f.size, 0)} bytes total\n`));
     tmpl = tmpl.replace('<!-- SSR_COMMIT_HASH -->', lastCommit?.hash12 || 'none');
+    tmpl = tmpl.replace('<!-- SSR_COMMIT_CREATED_AT -->', lastCommit?.created_at ? new Date(lastCommit.created_at * 1000).toISOString() : '');
     const etag = `"${lastCommit?.hash12 || 'none'}-summary"`;
     if (request.headers.get('If-None-Match') === etag) {
       return new Response(null, { status: 304, headers: { ETag: etag, ...corsHeaders } });
@@ -425,6 +427,7 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
       type: isDeltaMode ? 'delta' : 'dump',
       commit: lastCommit?.hash12 || null,
       parent: lastCommit?.parent_hash12 || null,
+      createdAt: lastCommit?.created_at || null,
       stats: isDeltaMode ? deltaStats : { added: filesToShow.length, modified: 0, deleted: 0, unchanged: 0 },
       fileCount: Object.keys(files).length,
       totalBytes,
@@ -449,10 +452,13 @@ async function handleDump(user, proj, request, env, corsHeaders, forceJson = fal
   if (isDeltaMode) {
     textDump += `// TinyHub delta: ${user}/${proj}\n`;
     textDump += `// commit: ${lastCommit?.hash12 || 'none'} parent: ${lastCommit?.parent_hash12 || 'none'}\n`;
+    textDump += `// pushed: ${lastCommit?.created_at ? new Date(lastCommit.created_at * 1000).toISOString() : 'unknown'}\n`;
     textDump += `// message: ${lastCommit?.message || 'none'}\n`;
     textDump += `// stats: +${deltaStats.added} ~${deltaStats.modified} -${deltaStats.deleted}\n\n`;
   } else {
     textDump += `// TinyHub repository dump: ${user}/${proj}\n`;
+    textDump += `// commit: ${lastCommit?.hash12 || 'none'}\n`;
+    textDump += `// pushed: ${lastCommit?.created_at ? new Date(lastCommit.created_at * 1000).toISOString() : 'unknown'}\n`;
     textDump += `// total files: ${filesToShow.length}\n\n`;
   }
 
@@ -535,6 +541,7 @@ Reply only with changed files using <code>// File: path</code></pre>
   tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${user}/${proj}/`);
   tmpl = tmpl.replace('<!-- SSR_RAW_DUMP_TEXT -->', escapeHtml(textDump));
   tmpl = tmpl.replace('<!-- SSR_COMMIT_HASH -->', lastCommit?.hash12 || 'none');
+  tmpl = tmpl.replace('<!-- SSR_COMMIT_CREATED_AT -->', lastCommit?.created_at ? new Date(lastCommit.created_at * 1000).toISOString() : '');
 
   const etag = `"${lastCommit?.hash12 || 'none'}-${totalBytes}"`;
 
@@ -548,7 +555,8 @@ Reply only with changed files using <code>// File: path</code></pre>
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
       'ETag': etag,
       'X-TinyHub-Commit': lastCommit?.hash12 || 'none',
-      'X-TinyHub-Parent': lastCommit?.parent_hash12 || 'none'
+      'X-TinyHub-Parent': lastCommit?.parent_hash12 || 'none',
+      'X-TinyHub-Created-At': lastCommit?.created_at ? new Date(lastCommit.created_at * 1000).toISOString() : 'unknown'
     }
   });
 }
@@ -641,7 +649,7 @@ export default {
         const wantFlat = searchParams.get('flat') === '1' || searchParams.get('flat') === 'true';
 
         const lastCommit = await env.DB.prepare(
-          'SELECT hash12 FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
+          'SELECT hash12, created_at FROM commits WHERE user = ? AND proj = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(USER, proj).first();
 
         const commitHash = lastCommit?.hash12 || 'none';
@@ -680,6 +688,7 @@ export default {
             repo: `${USER}/${proj}`,
             project: proj,
             commit: commitHash,
+            createdAt: lastCommit?.created_at || null,
             files: fileList,
             count: fileList.length
           }, 200, corsHeaders, { 'ETag': etag });
@@ -689,6 +698,8 @@ export default {
         return jsonResponse({
           repo: `${USER}/${proj}`,
           project: proj,
+          commit: commitHash,
+          createdAt: lastCommit?.created_at || null,
           files: paths,
           tree,
           count: paths.length
@@ -1413,7 +1424,7 @@ export default {
       return new Response('Not Found', { status: 404, headers: corsHeaders });
     } catch (err) {
       console.error(err);
-      return new Response(err.message, { status: 500, headers: corsHeaders });
+      return new Response('Internal Server Error', { status: 500, headers: corsHeaders });
     }
   }
 };

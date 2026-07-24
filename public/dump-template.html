@@ -145,9 +145,10 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       const commit = "<!-- SSR_COMMIT_HASH -->";
+      const pushedAt = "<!-- SSR_COMMIT_CREATED_AT -->";
       const freshnessEl = document.getElementById('dump-freshness');
       if (freshnessEl) {
-        freshnessEl.textContent = `commit ${commit} · rendered ${new Date().toLocaleString()}`;
+        freshnessEl.textContent = `commit ${commit} · pushed ${pushedAt || 'unknown'} · rendered ${new Date().toLocaleString()}`;
       }
 
       const deltaLink = document.getElementById('delta-link');
