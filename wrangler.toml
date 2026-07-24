@@ -17,5 +17,11 @@ database_id = "436ed677-c8fb-4384-ad51-8b2c1669c7c1"
 [vars]
 TINYHUB_USER = "andie"
 
+[[unsafe.bindings]]
+name = "WRITE_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
 [observability]
 enabled = true

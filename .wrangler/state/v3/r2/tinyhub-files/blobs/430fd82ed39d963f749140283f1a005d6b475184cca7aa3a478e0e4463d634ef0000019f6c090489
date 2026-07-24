@@ -1,0 +1,11 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "commits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    }
+  ]
+}

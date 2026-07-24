@@ -11,20 +11,17 @@ export async function listProjectFiles(FILES, user, proj) {
   }
   
   return objects
-    .map(obj => obj.key.replace(prefix, ''))
-    .filter(path => path && !isBlocked(path) && path !== '.dev.vars' && !path.endsWith('/.dev.vars'))
-    .sort();
-}
-
-export async function getFileMeta(FILES, key) {
-  const object = await FILES.head(key);
-  if (!object) return null;
-  return {
-    size: object.size,
-    sha256: object.customMetadata?.sha256 || null
-  };
+    .map(obj => ({
+      path: obj.key.replace(prefix, ''),
+      size: obj.size,
+      sha256: obj.customMetadata?.sha256 || null,
+      lines: obj.customMetadata?.lines ? parseInt(obj.customMetadata.lines) : null
+    }))
+    .filter(o => o.path && !isBlocked(o.path) && o.path !== '.dev.vars' && !o.path.endsWith('/.dev.vars'))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export async function putFile(FILES, key, bytes, customMetadata = {}) {
   await FILES.put(key, bytes, { customMetadata });
 }
+

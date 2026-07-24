@@ -1,0 +1,324 @@
+import functions from 'firebase-functions';
+import admin from 'firebase-admin';
+import express from 'express';
+import cors from 'cors';
+import Busboy from 'busboy';
+import crypto from 'crypto';
+
+admin.initializeApp();
+const db = admin.firestore();
+const bucket = admin.storage().bucket();
+const app = express();
+
+// Secure CORS setup (Fix 6)
+const ALLOWED_ORIGINS = (functions.config().tinyhub?.origins || 'http://localhost:5000,https://tinyhub.web.app').split(',');
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  }
+}));
+
+app.use(express.json());
+
+const USER = process.env.TINYHUB_USER || functions.config().tinyhub?.user || 'andie';
+
+// Load token and log fatal error if not configured (Fix 1)
+const TOKEN = functions.config().tinyhub?.token;
+if (!TOKEN) {
+  console.error('FATAL: tinyhub.token not set in functions config');
+}
+
+const SIGNING_SECRET = functions.config().tinyhub?.signing_secret;
+if (!SIGNING_SECRET) {
+  console.error('WARNING: tinyhub.signing_secret not set in functions config');
+}
+
+function isBlocked(path) {
+  if (!path) return true;
+  const cleanPath = path.replace(/\\/g, '/');
+  const parts = cleanPath.split('/');
+  
+  const blockedDirs = new Set(['.git', 'node_modules', '__pycache__', 'dist', 'build', '.next', '.venv']);
+  if (parts.some(p => blockedDirs.has(p))) {
+    return true;
+  }
+  
+  for (const p of parts) {
+    if (p.endsWith('.pem') || p.endsWith('.key') || p.endsWith('.p12') || p.endsWith('.pfx')) {
+      return true;
+    }
+    if (p === '.DS_Store' || p === 'Thumbs.db') {
+      return true;
+    }
+    if (p === '.env' || p.startsWith('.env.')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function safeProj(proj) {
+  if (!proj || typeof proj !== 'string') return null;
+  if (!/^[a-zA-Z0-9-_]+$/.test(proj)) return null;
+  return proj;
+}
+
+function safeRelPath(p) {
+  if (!p || typeof p !== 'string') return null;
+  p = p.replace(/\\/g, '/');
+  const parts = p.split('/');
+  if (parts.includes('..') || parts.includes('.') || p.startsWith('/')) {
+    return null;
+  }
+  return p;
+}
+
+// GET /api/tree/:proj
+app.get('/api/tree/:proj', async (req, res) => {
+  try {
+    const proj = safeProj(req.params.proj);
+    if (!proj) return res.status(400).send('Invalid project name');
+
+    const [files] = await bucket.getFiles({ prefix: `projects/${USER}/${proj}/` });
+    const tree = files
+      .map(f => f.name.replace(`projects/${USER}/${proj}/`, ''))
+      .filter(f => f && !isBlocked(f));
+    res.json(tree);
+  } catch (error) {
+    console.error("Tree error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /r/:user/:proj/*
+app.get('/r/:user/:proj/*', async (req, res) => {
+  try {
+    const { user, proj: rawProj } = req.params;
+    if (user !== USER) return res.status(404).send('not found');
+    const proj = safeProj(rawProj);
+    const path = safeRelPath(req.params[0]);
+    
+    if (!proj || !path) {
+      return res.status(400).send('Invalid project name or file path');
+    }
+    if (isBlocked(path)) return res.status(404).send('blocked');
+
+    const file = bucket.file(`projects/${user}/${proj}/${path}`);
+    const [exists] = await file.exists();
+    if (!exists) return res.status(404).send('not found');
+    
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    file.createReadStream().pipe(res);
+  } catch (error) {
+    console.error("Raw error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// POST /api/upload/:proj (multipart)
+app.post('/api/upload/:proj', (req, res) => {
+  const proj = safeProj(req.params.proj);
+  if (!proj) return res.status(400).send('Invalid project name');
+
+  // Enforce upload payload size limits (Fix 8)
+  const contentLength = parseInt(req.headers['content-length'] || '0');
+  if (contentLength > 100 * 1024 * 1024) {
+    return res.status(413).send('Payload too large (Max: 100MB)');
+  }
+
+  const bb = Busboy({
+    headers: req.headers,
+    limits: { fileSize: 10 * 1024 * 1024 } // limit individual file to 10MB
+  });
+  const uploadPromises = [];
+  const savedPaths = [];
+  const blockedPaths = [];
+  let aborted = false;
+  
+  bb.on('file', (name, file, info) => {
+    if (aborted) {
+      file.resume();
+      return;
+    }
+    const path = safeRelPath(info.filename);
+    if (!path || isBlocked(path)) {
+      blockedPaths.push(info.filename || 'unknown');
+      file.resume();
+      return;
+    }
+    const dest = bucket.file(`projects/${USER}/${proj}/${path}`);
+    const writeStream = dest.createWriteStream();
+    const p = new Promise((resolve, reject) => {
+      writeStream.on('finish', () => {
+        savedPaths.push(path);
+        resolve();
+      });
+      writeStream.on('error', (err) => {
+        reject(err);
+      });
+    });
+    file.pipe(writeStream);
+    uploadPromises.push(p);
+  });
+  
+  bb.on('finish', async () => {
+    if (aborted) return;
+    try {
+      await Promise.all(uploadPromises);
+      if (savedPaths.length > 0) {
+        await db.collection('projects').doc(`${USER}-${proj}`).collection('commits').add({
+          author: 'Andie',
+          message: `Upload ${savedPaths.length} files`,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          files: savedPaths
+        });
+      }
+      res.json({ saved: savedPaths, blocked: blockedPaths });
+    } catch (error) {
+      console.error("Finish write error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
+    }
+  });
+  
+  if (req.rawBody) {
+    bb.end(req.rawBody);
+  } else {
+    req.pipe(bb);
+  }
+});
+
+// POST /api/commit/:proj
+app.post('/api/commit/:proj', async (req, res) => {
+  try {
+    if (!TOKEN) return res.status(500).send('API Token not configured on server');
+    
+    const authHeader = req.headers.authorization || '';
+    const expectedAuth = `Bearer ${TOKEN}`;
+    if (authHeader.length !== expectedAuth.length || !crypto.timingSafeEqual(Buffer.from(authHeader), Buffer.from(expectedAuth))) {
+      return res.status(401).send('unauthorized');
+    }
+    
+    const proj = safeProj(req.params.proj);
+    if (!proj) return res.status(400).send('Invalid project name');
+
+    const { message, files } = req.body;
+    const writes = [];
+    const savedPaths = [];
+    
+    for (const [path, content] of Object.entries(files || {})) {
+      const safePath = safeRelPath(path);
+      if (!safePath || isBlocked(safePath)) continue;
+      writes.push(bucket.file(`projects/${USER}/${proj}/${safePath}`).save(content));
+      savedPaths.push(safePath);
+    }
+    
+    await Promise.all(writes);
+    
+    if (savedPaths.length > 0) {
+      await db.collection('projects').doc(`${USER}-${proj}`).collection('commits').add({
+        author: 'Meta AI',
+        message: message || "AI update",
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        files: savedPaths
+      });
+    }
+    
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Commit error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/commit-get/:proj?sig=...&m=message&f=path&c=base64content
+app.get('/api/commit-get/:proj', async (req, res) => {
+  try {
+    const { sig, m, f, c } = req.query;
+    const proj = safeProj(req.params.proj);
+    const path = safeRelPath(f);
+    
+    if (!proj || !path) {
+      return res.status(400).send('Invalid project name or file path');
+    }
+    if (isBlocked(path)) return res.status(400).send('blocked');
+
+    const message = m || 'AI via GET';
+
+    if (!SIGNING_SECRET) {
+      return res.status(500).send('Signing secret not configured on server');
+    }
+
+    const rawBuffer = Buffer.from(c || '', 'base64');
+    if (rawBuffer.length > 10 * 1024 * 1024) {
+      return res.status(400).send('Payload too large (Max: 10MB)');
+    }
+
+    // Verify request signature incorporating content hash (Fix C1)
+    const contentHash = crypto.createHash('sha256').update(c || '').digest('hex');
+    const expectedSig = crypto
+      .createHmac('sha256', SIGNING_SECRET)
+      .update(`${proj}:${f || ''}:${message}:${contentHash}`)
+      .digest('hex');
+
+    if (typeof sig !== 'string' || sig.length !== expectedSig.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+      return res.status(401).send('unauthorized');
+    }
+
+    await bucket.file(`projects/${USER}/${proj}/${path}`).save(rawBuffer);
+    await db.collection('projects').doc(`${USER}-${proj}`).collection('commits').add({
+      author: 'Meta AI',
+      message: message,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      files: [path],
+      via: 'GET'
+    });
+
+    res.set('Cache-Control', 'no-store');
+    // Return a tiny 1x1 transparent gif
+    res.set('Content-Type', 'image/gif');
+    res.send(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'));
+  } catch (error) {
+    console.error("GET commit error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// GET /api/history/:proj
+app.get('/api/history/:proj', async (req, res) => {
+  try {
+    const proj = safeProj(req.params.proj);
+    if (!proj) return res.status(400).send('Invalid project name');
+
+    const snap = await db.collection('projects')
+      .doc(`${USER}-${proj}`)
+      .collection('commits')
+      .orderBy('timestamp', 'desc')
+      .limit(50)
+      .get();
+      
+    res.json(snap.docs.map(d => {
+      const data = d.data();
+      const dateStr = data.timestamp ? data.timestamp.toDate().toISOString() : new Date().toISOString();
+      return {
+        id: d.id,
+        hash: d.id.substring(0, 7),
+        author: data.author,
+        message: data.message,
+        date: dateStr,
+        files: data.files
+      };
+    }));
+  } catch (error) {
+    console.error("History error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+export const api = functions.https.onRequest(app);
+

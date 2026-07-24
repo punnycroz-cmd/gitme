@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Browser — TinyHub</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1><a href="/">TinyHub</a> / <span id="user-display">user</span> / <span id="proj-display">project</span></h1>
+  </header>
+  <div class="browser">
+    <aside id="tree"></aside>
+    <main><pre id="preview">Select a file</pre></main>
+    <aside id="history"></aside>
+  </div>
+<script>
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+const pathParts = window.location.pathname.split('/').filter(Boolean);
+const user = pathParts[1] || 'andie';
+const proj = pathParts[2] || 'my-app';
+
+document.getElementById('user-display').textContent = user;
+document.getElementById('proj-display').textContent = proj;
+document.title = `${proj} — TinyHub`;
+
+fetch(`/api/tree/${proj}`).then(r=>r.json()).then(files=>{
+  const tree = document.getElementById('tree');
+  tree.innerHTML = '<h3>Files</h3>' + files.map(f=>{
+    const s = escapeHtml(f);
+    return `<div class="file" data-path="${s}">${s}</div>`;
+  }).join('');
+  tree.querySelectorAll('.file').forEach(el=>{
+    el.addEventListener('click', ()=>load(el.dataset.path));
+  });
+});
+
+fetch(`/api/history/${proj}`).then(r=>r.json()).then(h=>{
+  const hist = document.getElementById('history');
+  hist.innerHTML = '<h3>History</h3>' + h.map(c=>{
+    const hash = escapeHtml(c.hash);
+    const msg = escapeHtml(c.message);
+    const author = escapeHtml(c.author);
+    return `<div><b>${hash}</b> ${msg}<br><small>${author}</small></div>`;
+  }).join('');
+});
+
+function load(path){
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+  fetch(`/r/${user}/${proj}/${encodedPath}`).then(r=>r.text()).then(t=>{
+    document.getElementById('preview').textContent = t;
+  });
+}
+</script>
+</body>
+</html>

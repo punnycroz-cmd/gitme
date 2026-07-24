@@ -35,8 +35,20 @@ let API_BASE = window.TINYHUB_API_BASE || localStorage.getItem('TINYHUB_API_BASE
 const urlParams = new URLSearchParams(window.location.search);
 const queryApi = urlParams.get('api');
 if (queryApi) {
-  API_BASE = queryApi.replace(/\/$/, '');
-  localStorage.setItem('TINYHUB_API_BASE', API_BASE);
+  try {
+    const parsed = new URL(queryApi);
+    if (parsed.hostname.endsWith('.workers.dev') || parsed.hostname === 'localhost') {
+      API_BASE = queryApi.replace(/\/$/, '');
+      localStorage.setItem('TINYHUB_API_BASE', API_BASE);
+    } else {
+      if (confirm(`Security Warning: Do you want to set the API backend to an untrusted URL: ${queryApi}?`)) {
+        API_BASE = queryApi.replace(/\/$/, '');
+        localStorage.setItem('TINYHUB_API_BASE', API_BASE);
+      }
+    }
+  } catch (e) {
+    console.error('Invalid api URL in query string');
+  }
 }
 
 // One-time migration: move token from localStorage to sessionStorage

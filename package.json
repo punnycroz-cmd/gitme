@@ -1,7 +1,14 @@
 {
   "name": "tinyhub-cloudflare",
   "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
   "devDependencies": {
+    "vitest": "^1.6.0",
     "wrangler": "^3.114.17"
+  },
+  "dependencies": {
+    "itty-router": "^5.0.24"
   }
 }

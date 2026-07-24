@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TinyHub v2 — Prototype</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>TinyHub v2</h1>
+    <span>AI-writable code host — user: <strong id="user-display">andie</strong></span>
+  </header>
+  
+  <main>
+    <div class="upload-panel">
+      <div id="drop" class="drop">
+        <p>Drop folder or zip here</p>
+        <p class="sub">or</p>
+        <label class="btn">
+          Browse Folder
+          <input id="folder" type="file" webkitdirectory multiple hidden>
+        </label>
+      </div>
+      <div class="info">
+        <h3>Project name</h3>
+        <input id="proj" value="my-app">
+        <h3>Blocked patterns</h3>
+        <code>.env, .env.*, *.pem, *.key, *.p12, *.pfx, .DS_Store, Thumbs.db, node_modules/, __pycache__/, dist/, build/, .next/</code>
+        <div id="status"></div>
+      </div>
+    </div>
+
+    <div class="ai-panel">
+      <h3>Allow Meta AI to push</h3>
+      <label><input type="checkbox" checked> Enabled</label>
+      <p>Token: <code id="token">••••••••••••</code> (hidden — stored server-side)</p>
+      <p>Endpoint:</p>
+      <pre>POST /api/commit/my-app
+Authorization: Bearer &lt;configured-token&gt;</pre>
+    </div>
+
+    <div id="result"></div>
+  </main>
+
+<script src="/app.js"></script>
+</body>
+</html>
