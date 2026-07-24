@@ -389,6 +389,7 @@ export async function getDump(request, env) {
 
   let totalBytes = 0;
   let fileCount = 0;
+  const fileContents = {};
   const R2_CONCURRENCY = 8;
   for (let i = 0; i < filesToShow.length; i += R2_CONCURRENCY) {
     if (totalBytes >= LIMITS.DUMP_MAX_TOTAL) break;
@@ -413,7 +414,7 @@ export async function getDump(request, env) {
           const object = await env.FILES.get(`projects/${user}/${proj}/${path}`);
           if (!object) return;
           const text = await object.text();
-          textDump += `// File: ${path}\n${text}\n\n`;
+          fileContents[path] = text;
           totalBytes += size;
           fileCount++;
         } catch (e) {
@@ -421,6 +422,12 @@ export async function getDump(request, env) {
         }
       })
     );
+  }
+
+  for (const path of filesToShow) {
+    if (fileContents[path] !== undefined) {
+      textDump += `// File: ${path}\n${fileContents[path]}\n\n`;
+    }
   }
 
   if (skipped.length > 0) {
@@ -431,10 +438,68 @@ export async function getDump(request, env) {
     textDump += `\n`;
   }
 
+  const deletedFiles = changed.filter(c => c.change_type === 'deleted').map(c => c.path).sort();
+
+  let chipsHtml = '<div class="dump-chips">';
+  if (isDeltaMode) {
+    chipsHtml += `<span class="dump-chip">+${deltaStats.added} ~${deltaStats.modified} -${deltaStats.deleted}</span>`;
+    chipsHtml += `<span class="dump-chip">${(totalBytes / 1024).toFixed(1)} KB</span>`;
+    chipsHtml += `<span class="dump-chip">commit ${lastCommit?.hash12 || 'none'}</span>`;
+  } else {
+    chipsHtml += `<span class="dump-chip">${fileCount} files</span>`;
+    chipsHtml += `<span class="dump-chip">${(totalBytes / 1024).toFixed(1)} KB</span>`;
+    chipsHtml += `<span class="dump-chip">commit ${lastCommit?.hash12 || 'none'}</span>`;
+  }
+  chipsHtml += '</div>';
+
+  let bannerHtml = '';
+  if (isDeltaMode) {
+    bannerHtml = `
+      <div class="dump-banner delta-banner">
+        <p><strong>Copy-paste prompt for AI chat:</strong></p>
+        <pre style="background: var(--bg-glass-inset); padding: 12px; border-radius: 8px; margin-top: 8px; font-family: ui-monospace, monospace; white-space: pre-wrap; font-size: 12px; color: var(--text);">Baseline was full project earlier.
+Here are only files changed since last push (<code>${lastCommit?.hash12 || 'none'}</code>).
+Unchanged files still exist, don't rewrite them unless needed.
+Reply only with changed files using <code>// File: path</code></pre>
+      </div>
+    `;
+  } else {
+    bannerHtml = `
+      <div class="dump-banner">
+        <p>This page contains all project files with their full content.
+          Copy-paste the entire page (or click "Copy All") into an AI chat for instant access to every file.</p>
+      </div>
+    `;
+  }
+
+  let sectionsHtml = '';
+  for (const path of filesToShow) {
+    if (fileContents[path] !== undefined) {
+      const icon = getFileIcon(path);
+      sectionsHtml += `<section class="dump-section"><div class="dump-path">${icon}<span>${escapeHtml(path)}</span></div><div class="dump-code"><pre><code>${escapeHtml(fileContents[path])}</code></pre></div></section>`;
+    }
+  }
+  for (const path of deletedFiles) {
+    sectionsHtml += `<section class="dump-section" style="opacity: 0.6;"><div class="dump-path" style="text-decoration: line-through;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg><span>${escapeHtml(path)} (deleted)</span></div><div class="dump-code" style="padding: 12px; font-style: italic; color: var(--text-muted);">// File removed</div></section>`;
+  }
+
+  if (!sectionsHtml) {
+    sectionsHtml = '<div class="dump-empty">No changed files found in this project.</div>';
+  }
+
+  let metaHtml = `${fileCount} files shown`;
+  if (skipped.length) metaHtml += ` · ${skipped.length} skipped`;
+  metaHtml += ` · ${totalBytes.toLocaleString()} bytes`;
+
   const templateRes = await env.ASSETS.fetch(new Request(new URL('/dump-template.html', request.url)));
   if (!templateRes.ok) return new Response('Template not found', { status: 500 });
   let tmpl = await templateRes.text();
 
+  const title = `TinyHub — ${user}/${proj} (${isDeltaMode ? 'delta' : 'dump'})`;
+  tmpl = tmpl.replace('<!-- SSR_TITLE -->', escapeHtml(title));
+  tmpl = tmpl.replace('<!-- SSR_DUMP_CHIPS -->', chipsHtml);
+  tmpl = tmpl.replace('<!-- SSR_DUMP_BANNER -->', bannerHtml);
+  tmpl = tmpl.replace('<!-- SSR_DUMP_CONTENT -->', `<div class="dump-meta">${escapeHtml(metaHtml)}</div>${sectionsHtml}`);
   tmpl = tmpl.replace('<!-- SSR_PROJECT_NAME -->', escapeHtml(proj));
   tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${user}/${proj}/`);
   tmpl = tmpl.replace('<!-- SSR_RAW_DUMP_TEXT -->', escapeHtml(textDump));
