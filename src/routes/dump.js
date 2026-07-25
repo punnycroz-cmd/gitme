@@ -179,7 +179,7 @@ export async function getDump(request, env) {
   const corsHeaders = writeCorsHeaders(request);
   const USER = env.TINYHUB_USER || 'andie';
   
-  const user = request.params.user;
+  const user = request.params.user || USER;
   const proj = safeProj(request.params.proj);
 
   if (user !== USER || !proj) {

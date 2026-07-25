@@ -32,15 +32,37 @@ router.options('*', (request) => {
 router.get('/api/health', getHealth);
 router.get('/api/config', getConfig);
 router.get('/api/projects', getProjects);
+
+// Activity routes (for UI dashboard)
+router.get('/api/activity', (req) => jsonResponse([], 200, writeCorsHeaders(req)));
+router.get('/api/activity/heatmap', (req) => jsonResponse({}, 200, writeCorsHeaders(req)));
+
+// Support both /api/:action/:proj and /api/projects/:proj/:action
 router.get('/api/tip/:proj', getTip);
+router.get('/api/projects/:proj/tip', getTip);
+
 router.get('/api/tree/:proj', getTree);
+router.get('/api/projects/:proj/tree', getTree);
+
 router.get('/api/file/:proj', getFile);
+router.get('/api/projects/:proj/file', getFile);
+
 router.get('/api/history/:proj', getHistory);
+router.get('/api/projects/:proj/history', getHistory);
+
 router.post('/api/reset/:proj', postReset);
+router.post('/api/projects/:proj/reset', postReset);
 
 router.get('/api/search/:proj', getSearch);
+router.get('/api/projects/:proj/search', getSearch);
+
 router.post('/api/upload/:proj', postUpload);
+router.post('/api/projects/:proj/upload', postUpload);
+
 router.post('/api/commit/:proj', postCommit);
+router.post('/api/projects/:proj/commit', postCommit);
+
+router.get('/api/projects/:proj/dump', getDump);
 
 router.get('/r/:user/:proj/*', getRawFile);
 router.get('/p/:user/:proj/*', getBrowser);
