@@ -5,16 +5,12 @@ import { RefreshCw } from "lucide-react";
 
 export interface DumpHeaderProps {
   project: string;
-  fastMode: boolean;
-  setFastMode: (v: boolean) => void;
   loading: boolean;
   fetchDump: () => void;
 }
 
 export const DumpHeader: React.FC<DumpHeaderProps> = ({
   project,
-  fastMode,
-  setFastMode,
   loading,
   fetchDump,
 }) => {
@@ -31,15 +27,6 @@ export const DumpHeader: React.FC<DumpHeaderProps> = ({
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {/* Fast mode toggle */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => setFastMode(!fastMode)}
-          disabled={loading}
-        >
-          {fastMode ? "Fast HTML" : "JSON View"}
-        </Button>
         <Button
           variant="outline"
           size="sm"
