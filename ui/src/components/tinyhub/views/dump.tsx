@@ -499,6 +499,7 @@ function FileSection({
   isDark: boolean;
   delay: number;
 }) {
+  const [collapsed, setCollapsed] = React.useState(false);
   const lang = detectLanguage(path);
   const lineCount = content ? content.split("\n").length : 0;
   const byteSize = content ? new Blob([content]).size : 0;
@@ -510,8 +511,16 @@ function FileSection({
       className="bg-card border rounded-lg overflow-hidden"
       style={{ contentVisibility: "auto", containIntrinsicSize: "200px" }}
     >
-      <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5 bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0 text-xs">
+      <div
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex items-center justify-between gap-2 border-b px-3 py-1.5 bg-muted/30 hover:bg-muted/50 cursor-pointer select-none transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0 text-xs font-medium">
+          {collapsed ? (
+            <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+          ) : (
+            <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+          )}
           <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />
           <code className="font-mono truncate" title={path}>
             {path}
@@ -522,40 +531,42 @@ function FileSection({
           {formatBytes(byteSize)} · {lineCount} lines
         </div>
       </div>
-      {lineCount > 300 ? (
-        <pre className="p-3 text-[12.5px] font-mono overflow-x-auto whitespace-pre bg-transparent border-none text-foreground/90">
-          {content || ""}
-        </pre>
-      ) : (
-        <SyntaxHighlighter
-          language={lang || "text"}
-          style={isDark ? oneDark : oneLight}
-          showLineNumbers
-          wrapLongLines={false}
-          customStyle={{
-            margin: 0,
-            background: "transparent",
-            padding: "10px 14px",
-            fontSize: "12.5px",
-            fontFamily:
-              "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-          }}
-          lineNumberStyle={{
-            minWidth: "2.5em",
-            paddingRight: "1em",
-            color: "var(--muted-foreground)",
-            userSelect: "none",
-            opacity: 0.6,
-          }}
-          codeTagProps={{
-            style: {
+      {!collapsed && (
+        lineCount > 300 ? (
+          <pre className="p-3 text-[12.5px] font-mono overflow-x-auto whitespace-pre bg-transparent border-none text-foreground/90">
+            {content || ""}
+          </pre>
+        ) : (
+          <SyntaxHighlighter
+            language={lang || "text"}
+            style={isDark ? oneDark : oneLight}
+            showLineNumbers
+            wrapLongLines={false}
+            customStyle={{
+              margin: 0,
+              background: "transparent",
+              padding: "10px 14px",
+              fontSize: "12.5px",
               fontFamily:
                 "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-            },
-          }}
-        >
-          {content || ""}
-        </SyntaxHighlighter>
+            }}
+            lineNumberStyle={{
+              minWidth: "2.5em",
+              paddingRight: "1em",
+              color: "var(--muted-foreground)",
+              userSelect: "none",
+              opacity: 0.6,
+            }}
+            codeTagProps={{
+              style: {
+                fontFamily:
+                  "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
+              },
+            }}
+          >
+            {content || ""}
+          </SyntaxHighlighter>
+        )
       )}
     </motion.div>
   );
