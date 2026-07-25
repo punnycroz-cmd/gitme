@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { lazy, Suspense } from "react";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
@@ -32,8 +31,6 @@ import {
   FileWarning,
   Eye,
   Code2,
-  ChevronsUpDown,
-  ChevronsDownUp,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { motion } from "framer-motion";
@@ -68,10 +65,10 @@ import {
 } from "@/components/ui/collapsible";
 
 import { useTinyHubStore } from "../store";
-import { DumpHeader } from "../DumpHeader";
 import {
   ApiError,
   buildDumpText,
+  getDumpHtmlUrl,
   getDumpJson,
 } from "../api";
 import { detectLanguage, fileBaseName, formatBytes, formatNumber } from "../utils";
@@ -112,7 +109,6 @@ export function Dump() {
   const [error, setError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [skippedOpen, setSkippedOpen] = React.useState(false);
-  const [allCollapsed, setAllCollapsed] = React.useState(false);
 
   const fetchDump = React.useCallback(async () => {
     if (!project) return;
@@ -200,19 +196,29 @@ export function Dump() {
 
   return (
     <div className="tinyhub-view-enter space-y-4">
-      <DumpHeader
-        project={project}
-        loading={loading}
-        fetchDump={fetchDump}
-      />
+      {/* Header */}
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight flex items-center gap-2">
+            Dump
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Snapshot of <code className="font-mono">{project}</code> as a single
+            text bundle. Perfect for handing off to an LLM or generating a
+            code-review pack.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={fetchDump} disabled={loading}>
+          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+          Refresh
+        </Button>
+      </div>
 
       {/* Controls bar */}
       <Card className="py-4">
         <CardContent className="px-4 grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-1.5">
-            <Label htmlFor="dump-mode" className="text-xs">
-              Mode
-            </Label>
+            <Label htmlFor="dump-mode" className="text-xs">Mode</Label>
             <Select
               value={mode}
               onValueChange={(v) => setMode(v as DumpMode)}
@@ -228,9 +234,7 @@ export function Dump() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="dump-since" className="text-xs">
-              Since (hash or "last")
-            </Label>
+            <Label htmlFor="dump-since" className="text-xs">Since (hash or "last")</Label>
             <Input
               id="dump-since"
               value={since}
@@ -240,9 +244,7 @@ export function Dump() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="dump-max" className="text-xs">
-              Max tokens
-            </Label>
+            <Label htmlFor="dump-max" className="text-xs">Max tokens</Label>
             <Input
               id="dump-max"
               type="number"
@@ -254,9 +256,7 @@ export function Dump() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="dump-path" className="text-xs">
-              Path filter
-            </Label>
+            <Label htmlFor="dump-path" className="text-xs">Path filter</Label>
             <Input
               id="dump-path"
               value={pathFilter}
@@ -281,12 +281,7 @@ export function Dump() {
                   <Code2 className="size-3.5" /> JSON
                 </ToggleGroupItem>
               </ToggleGroup>
-              <Button
-                size="sm"
-                onClick={fetchDump}
-                disabled={loading}
-                className="h-9 flex-1"
-              >
+              <Button size="sm" onClick={fetchDump} disabled={loading} className="h-9 flex-1">
                 {loading ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
@@ -309,34 +304,12 @@ export function Dump() {
             commit {dump.commit?.slice(0, 8) || "none"}
           </Badge>
           {dump.createdAt ? (
-            <span>created {new Date(dump.createdAt).toLocaleString()}</span>
+            <span>
+              created {new Date(dump.createdAt).toLocaleString()}
+            </span>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
-            {format === "rendered" && !isFilesArray && fileCount > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setAllCollapsed((c) => !c)}
-                className="h-8 text-xs gap-1.5"
-              >
-                {allCollapsed ? (
-                  <>
-                    <ChevronsUpDown className="size-3.5" /> Expand all
-                  </>
-                ) : (
-                  <>
-                    <ChevronsDownUp className="size-3.5" /> Collapse all
-                  </>
-                )}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleCopy}
-              disabled={loading}
-              className="h-8 text-xs gap-1.5"
-            >
+            <Button size="sm" variant="outline" onClick={handleCopy} disabled={loading}>
               {copied ? (
                 <Check className="size-3.5 text-emerald-500" />
               ) : (
@@ -344,15 +317,28 @@ export function Dump() {
               )}
               Copy all
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleDownload}
-              disabled={loading}
-              className="h-8 text-xs gap-1.5"
-            >
+            <Button size="sm" variant="outline" onClick={handleDownload} disabled={loading}>
               <Download className="size-3.5" />
               Download .txt
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              asChild
+            >
+              <a
+                href={getDumpHtmlUrl(project, {
+                  mode,
+                  since: since || undefined,
+                  max_tokens: maxTokens ? Number(maxTokens) : undefined,
+                  path: pathFilter || undefined,
+                  format: "html",
+                })}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open HTML
+              </a>
             </Button>
           </div>
         </div>
@@ -369,17 +355,17 @@ export function Dump() {
 
       {/* Loading skeleton */}
       {loading && !dump && (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="border rounded-lg p-4 space-y-2">
-              <div className="h-4 w-1/4 bg-muted rounded animate-pulse" />
-              <div className="h-24 w-full bg-muted/50 rounded animate-pulse" />
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="space-y-1">
+              <div className="h-5 w-1/3 bg-muted rounded animate-pulse" />
+              <div className="h-20 w-full bg-muted rounded animate-pulse" />
             </div>
           ))}
         </div>
       )}
 
-      {/* Body Content */}
+      {/* Body */}
       {dump && !loading && (
         <div className="space-y-4">
           {/* Skipped files panel */}
@@ -391,10 +377,7 @@ export function Dump() {
                     <CardTitle className="text-sm flex items-center gap-2">
                       <FileWarning className="size-4 text-amber-500" />
                       Skipped files
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] h-5 border-amber-500/40"
-                      >
+                      <Badge variant="outline" className="text-[10px] h-5 border-amber-500/40">
                         {skippedCount}
                       </Badge>
                     </CardTitle>
@@ -434,7 +417,7 @@ export function Dump() {
             </Collapsible>
           )}
 
-          {/* Rendered View Format */}
+          {/* Rendered format */}
           {format === "rendered" ? (
             fileCount === 0 ? (
               <Card className="py-10">
@@ -472,46 +455,42 @@ export function Dump() {
               </Card>
             ) : (
               <div className="space-y-3">
-                {filesArray.map(([path, content], index) => (
+                {filesArray.map(([path, content], i) => (
                   <FileSection
                     key={path}
                     path={path}
                     content={content}
                     isDark={isDark}
-                    delay={Math.min(index * 0.01, 0.2)}
-                    forceCollapsed={allCollapsed}
+                    delay={Math.min(i * 0.01, 0.3)}
                   />
                 ))}
               </div>
             )
           ) : (
-            /* JSON View Format */
             <Card className="py-4">
               <CardHeader className="px-4 pb-2 flex-row items-center justify-between">
-                <CardTitle className="text-sm font-medium">
-                  JSON Output Payload
-                </CardTitle>
+                <CardTitle className="text-sm">Raw JSON</CardTitle>
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="h-7 text-xs gap-1.5"
+                  variant="ghost"
+                  className="h-7"
                   onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(
                         JSON.stringify(dump, null, 2)
                       );
-                      toast.success("JSON payload copied");
+                      toast.success("JSON copied");
                     } catch {
-                      toast.error("Couldn't copy JSON");
+                      toast.error("Couldn't copy");
                     }
                   }}
                 >
                   <Copy className="size-3.5" />
-                  Copy JSON
+                  Copy
                 </Button>
               </CardHeader>
               <CardContent className="px-4">
-                <pre className="max-h-[65vh] overflow-auto rounded-md border bg-muted/30 p-3.5 text-xs font-mono whitespace-pre leading-relaxed">
+                <pre className="max-h-[60vh] overflow-auto rounded-md border bg-muted/30 p-3 text-xs font-mono whitespace-pre">
                   {JSON.stringify(dump, null, 2)}
                 </pre>
               </CardContent>
@@ -528,123 +507,63 @@ export function FileSection({
   content,
   isDark,
   delay,
-  forceCollapsed,
 }: {
   path: string;
   content: string;
   isDark: boolean;
   delay: number;
-  forceCollapsed?: boolean;
 }) {
-  const [collapsed, setCollapsed] = React.useState(false);
-  const [fileCopied, setFileCopied] = React.useState(false);
-
-  React.useEffect(() => {
-    if (typeof forceCollapsed === "boolean") {
-      setCollapsed(forceCollapsed);
-    }
-  }, [forceCollapsed]);
-
   const lang = detectLanguage(path);
-  const deferredContent = React.useDeferredValue(content);
-  const lineCount = deferredContent ? deferredContent.split("\n").length : 0;
+  const lineCount = content ? content.split("\n").length : 0;
   const byteSize = content ? new Blob([content]).size : 0;
-
-  const handleCopyFile = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(content);
-      setFileCopied(true);
-      toast.success(`Copied ${fileBaseName(path)}`);
-      setTimeout(() => setFileCopied(false), 1200);
-    } catch {
-      toast.error("Failed to copy file");
-    }
-  };
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.15, delay }}
-      className="bg-card border rounded-lg overflow-hidden shadow-xs"
-      style={{ contentVisibility: "auto", containIntrinsicSize: "180px" }}
+      transition={{ duration: 0.18, delay }}
+      className="bg-card border rounded-lg overflow-hidden"
     >
-      <div
-        onClick={() => setCollapsed((c) => !c)}
-        className="flex items-center justify-between gap-2 border-b px-3.5 py-2 bg-muted/30 hover:bg-muted/60 cursor-pointer select-none transition-colors"
-      >
-        <div className="flex items-center gap-2 min-w-0 text-xs font-medium">
-          {collapsed ? (
-            <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-          )}
+      <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5 bg-muted/30">
+        <div className="flex items-center gap-2 min-w-0 text-xs">
           <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />
           <code className="font-mono truncate" title={path}>
             {path}
           </code>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
-            {fileBaseName(path).split(".").pop()?.toUpperCase()} ·{" "}
-            {formatBytes(byteSize)} · {lineCount} lines
-          </span>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-6 text-muted-foreground hover:text-foreground"
-            title="Copy file content"
-            onClick={handleCopyFile}
-          >
-            {fileCopied ? (
-              <Check className="size-3 text-emerald-500" />
-            ) : (
-              <Copy className="size-3" />
-            )}
-          </Button>
+        <div className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+          {fileBaseName(path).split(".").pop()?.toUpperCase()} ·{" "}
+          {formatBytes(byteSize)} · {lineCount} lines
         </div>
       </div>
-
-      {!collapsed && (
-        lineCount > 350 ? (
-          <pre className="p-3.5 text-[12.5px] font-mono overflow-x-auto whitespace-pre bg-transparent border-none text-foreground/90 leading-relaxed">
-            {content || ""}
-          </pre>
-        ) : (
-          <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading code preview...</div>}>
-            <SyntaxHighlighter
-              language={lang || "text"}
-              style={isDark ? oneDark : oneLight}
-              showLineNumbers
-              wrapLongLines={false}
-              customStyle={{
-                margin: 0,
-                background: "transparent",
-                padding: "10px 14px",
-                fontSize: "12.5px",
-                fontFamily:
-                  "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-              }}
-              lineNumberStyle={{
-                minWidth: "2.5em",
-                paddingRight: "1em",
-                color: "var(--muted-foreground)",
-                userSelect: "none",
-                opacity: 0.5,
-              }}
-              codeTagProps={{
-                style: {
-                  fontFamily:
-                    "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-                },
-              }}
-            >
-              {content || ""}
-            </SyntaxHighlighter>
-          </Suspense>
-        )
-      )}
+      <SyntaxHighlighter
+        language={lang || "text"}
+        style={isDark ? oneDark : oneLight}
+        showLineNumbers
+        wrapLongLines={false}
+        customStyle={{
+          margin: 0,
+          background: "transparent",
+          padding: "10px 14px",
+          fontSize: "12.5px",
+          fontFamily:
+            "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
+        }}
+        lineNumberStyle={{
+          minWidth: "2.5em",
+          paddingRight: "1em",
+          color: "var(--muted-foreground)",
+          userSelect: "none",
+          opacity: 0.6,
+        }}
+        codeTagProps={{
+          style: {
+            fontFamily:
+              "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
+          },
+        }}
+      >
+        {content || ""}
+      </SyntaxHighlighter>
     </motion.div>
   );
 }
