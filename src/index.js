@@ -4,7 +4,7 @@ import { getSearch } from './routes/search.js';
 import { postUpload } from './routes/upload.js';
 import { postCommit } from './routes/commit.js';
 import { getRawFile, getBrowser, getDump } from './routes/dump.js';
-import { writeCorsHeaders } from './helpers.js';
+import { writeCorsHeaders, jsonResponse } from './helpers.js';
 
 const router = Router();
 
