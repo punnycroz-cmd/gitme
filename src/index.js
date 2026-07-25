@@ -77,7 +77,9 @@ router.all('*', async (request, env) => {
   if (assetRes.ok) {
     const headers = new Headers(assetRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    headers.set('Pragma', 'no-cache');
+    headers.set('Expires', '0');
     return new Response(assetRes.body, { status: assetRes.status, headers });
   }
 
@@ -89,7 +91,9 @@ router.all('*', async (request, env) => {
       const headers = new Headers(indexRes.headers);
       headers.set('Access-Control-Allow-Origin', '*');
       headers.set('Content-Type', 'text/html; charset=utf-8');
-      headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      headers.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+      headers.set('Pragma', 'no-cache');
+      headers.set('Expires', '0');
       return new Response(indexRes.body, { status: 200, headers });
     }
   }
