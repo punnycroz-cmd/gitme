@@ -485,6 +485,7 @@ function FileSection({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18, delay }}
       className="bg-card border rounded-lg overflow-hidden"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "200px" }}
     >
       <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5 bg-muted/30">
         <div className="flex items-center gap-2 min-w-0 text-xs">
@@ -498,35 +499,41 @@ function FileSection({
           {formatBytes(byteSize)} · {lineCount} lines
         </div>
       </div>
-      <SyntaxHighlighter
-        language={lang || "text"}
-        style={isDark ? oneDark : oneLight}
-        showLineNumbers
-        wrapLongLines={false}
-        customStyle={{
-          margin: 0,
-          background: "transparent",
-          padding: "10px 14px",
-          fontSize: "12.5px",
-          fontFamily:
-            "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-        }}
-        lineNumberStyle={{
-          minWidth: "2.5em",
-          paddingRight: "1em",
-          color: "var(--muted-foreground)",
-          userSelect: "none",
-          opacity: 0.6,
-        }}
-        codeTagProps={{
-          style: {
+      {lineCount > 300 ? (
+        <pre className="p-3 text-[12.5px] font-mono overflow-x-auto whitespace-pre bg-transparent border-none text-foreground/90">
+          {content || ""}
+        </pre>
+      ) : (
+        <SyntaxHighlighter
+          language={lang || "text"}
+          style={isDark ? oneDark : oneLight}
+          showLineNumbers
+          wrapLongLines={false}
+          customStyle={{
+            margin: 0,
+            background: "transparent",
+            padding: "10px 14px",
+            fontSize: "12.5px",
             fontFamily:
               "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-          },
-        }}
-      >
-        {content || ""}
-      </SyntaxHighlighter>
+          }}
+          lineNumberStyle={{
+            minWidth: "2.5em",
+            paddingRight: "1em",
+            color: "var(--muted-foreground)",
+            userSelect: "none",
+            opacity: 0.6,
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily:
+                "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
+            },
+          }}
+        >
+          {content || ""}
+        </SyntaxHighlighter>
+      )}
     </motion.div>
   );
 }
