@@ -2,6 +2,8 @@
   "name": "tinyhub-cloudflare",
   "type": "module",
   "scripts": {
+    "build:ui": "cd ui && npm run build && cp -r out/* ../public/",
+    "deploy": "npm run build:ui && wrangler deploy",
     "test": "vitest run"
   },
   "devDependencies": {

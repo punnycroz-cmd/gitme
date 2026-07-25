@@ -48,7 +48,7 @@ router.get('/p/:user/:proj', getBrowser); // Also match without trailing slash
 router.get('/dump/:user/:proj', getDump);
 router.get('/dump/:user/:proj/', getDump);
 
-// Fallback to static asset serving or 404
+// Fallback to static asset serving or 404 (with SPA fallback to index.html)
 router.all('*', async (request, env) => {
   const corsHeaders = writeCorsHeaders(request);
   const assetRes = await env.ASSETS.fetch(request);
@@ -58,6 +58,20 @@ router.all('*', async (request, env) => {
     headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     return new Response(assetRes.body, { status: assetRes.status, headers });
   }
+
+  // If path has no extension, fallback to index.html for SPA client-side routing
+  const url = new URL(request.url);
+  if (!url.pathname.includes('.')) {
+    const indexRes = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url), request));
+    if (indexRes.ok) {
+      const headers = new Headers(indexRes.headers);
+      headers.set('Access-Control-Allow-Origin', '*');
+      headers.set('Content-Type', 'text/html; charset=utf-8');
+      headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      return new Response(indexRes.body, { status: 200, headers });
+    }
+  }
+
   return new Response('Not Found', { status: 404, headers: corsHeaders });
 });
 

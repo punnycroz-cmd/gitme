@@ -1,0 +1,500 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ── TinyHub custom styles ───────────────────────────────────────── */
+
+/* Custom scrollbar (used on long lists: max-h-96 overflow-y-auto, etc.) */
+.tinyhub-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.tinyhub-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.tinyhub-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.tinyhub-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.tinyhub-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+  background-clip: content-box;
+}
+
+/* Search-result match highlight */
+.tinyhub-mark {
+  background: oklch(0.85 0.16 84);
+  color: oklch(0.2 0.06 84);
+  border-radius: 0.2rem;
+  padding: 0 0.1em;
+  font-weight: 600;
+}
+.dark .tinyhub-mark {
+  background: oklch(0.7 0.16 84);
+  color: oklch(0.15 0.02 84);
+}
+
+/* Diff chip colors (added / modified / deleted) — emerald / amber / rose */
+.tinyhub-chip-add {
+  background: oklch(0.95 0.06 162);
+  color: oklch(0.32 0.09 162);
+  border: 1px solid oklch(0.85 0.08 162);
+}
+.dark .tinyhub-chip-add {
+  background: oklch(0.32 0.08 162 / 0.35);
+  color: oklch(0.85 0.13 162);
+  border: 1px solid oklch(0.45 0.1 162 / 0.6);
+}
+.tinyhub-chip-mod {
+  background: oklch(0.95 0.07 75);
+  color: oklch(0.34 0.1 75);
+  border: 1px solid oklch(0.85 0.1 75);
+}
+.dark .tinyhub-chip-mod {
+  background: oklch(0.4 0.1 75 / 0.35);
+  color: oklch(0.85 0.13 75);
+  border: 1px solid oklch(0.55 0.12 75 / 0.6);
+}
+.tinyhub-chip-del {
+  background: oklch(0.95 0.05 20);
+  color: oklch(0.36 0.13 20);
+  border: 1px solid oklch(0.85 0.07 20);
+}
+.dark .tinyhub-chip-del {
+  background: oklch(0.36 0.13 20 / 0.35);
+  color: oklch(0.85 0.13 20);
+  border: 1px solid oklch(0.5 0.15 20 / 0.6);
+}
+
+/* In-browser editor textarea */
+.tinyhub-editor-textarea {
+  color: var(--foreground);
+  caret-color: oklch(0.55 0.13 162);
+}
+.dark .tinyhub-editor-textarea {
+  caret-color: oklch(0.78 0.16 162);
+}
+.tinyhub-editor-textarea::selection {
+  background: oklch(0.85 0.1 162 / 0.45);
+}
+
+/* Diff-viewer row tinting — emerald added / rose deleted / neutral context */
+.tinyhub-diff-add {
+  background: oklch(0.96 0.04 162 / 0.55);
+  border-left: 2px solid oklch(0.6 0.13 162);
+}
+.dark .tinyhub-diff-add {
+  background: oklch(0.32 0.08 162 / 0.18);
+  border-left: 2px solid oklch(0.6 0.13 162);
+}
+.tinyhub-diff-del {
+  background: oklch(0.96 0.04 20 / 0.55);
+  border-left: 2px solid oklch(0.6 0.16 20);
+}
+.dark .tinyhub-diff-del {
+  background: oklch(0.36 0.13 20 / 0.18);
+  border-left: 2px solid oklch(0.6 0.16 20);
+}
+.tinyhub-diff-ctx {
+  border-left: 2px solid transparent;
+}
+
+/* Prism syntax-highlight token colors for diff rows (and any other Prism usage).
+   Tuned to remain readable on top of the +/- diff row tints (emerald/rose/ctx). */
+.tinyhub-diff-code .token.comment,
+.tinyhub-diff-code .token.prolog,
+.tinyhub-diff-code .token.doctype,
+.tinyhub-diff-code .token.cdata {
+  color: oklch(0.55 0.02 250);
+  font-style: italic;
+}
+.tinyhub-diff-code .token.punctuation {
+  color: oklch(0.5 0.03 250);
+}
+.tinyhub-diff-code .token.property,
+.tinyhub-diff-code .token.tag,
+.tinyhub-diff-code .token.boolean,
+.tinyhub-diff-code .token.number,
+.tinyhub-diff-code .token.constant,
+.tinyhub-diff-code .token.symbol {
+  color: oklch(0.5 0.16 20);
+}
+.tinyhub-diff-code .token.selector,
+.tinyhub-diff-code .token.attr-name,
+.tinyhub-diff-code .token.string,
+.tinyhub-diff-code .token.char,
+.tinyhub-diff-code .token.builtin,
+.tinyhub-diff-code .token.inserted {
+  color: oklch(0.45 0.13 142);
+}
+.tinyhub-diff-code .token.operator,
+.tinyhub-diff-code .token.entity,
+.tinyhub-diff-code .token.url,
+.tinyhub-diff-code .token.variable {
+  color: oklch(0.55 0.1 60);
+}
+.tinyhub-diff-code .token.atrule,
+.tinyhub-diff-code .token.attr-value,
+.tinyhub-diff-code .token.keyword {
+  color: oklch(0.5 0.18 295);
+}
+.tinyhub-diff-code .token.function,
+.tinyhub-diff-code .token.class-name {
+  color: oklch(0.55 0.16 250);
+  font-weight: 500;
+}
+.tinyhub-diff-code .token.regex,
+.tinyhub-diff-code .token.important {
+  color: oklch(0.55 0.2 20);
+}
+
+/* Dark-mode token variants — brighter for contrast on dark backgrounds. */
+.dark .tinyhub-diff-code .token.comment,
+.dark .tinyhub-diff-code .token.prolog,
+.dark .tinyhub-diff-code .token.doctype,
+.dark .tinyhub-diff-code .token.cdata {
+  color: oklch(0.7 0.02 250);
+}
+.dark .tinyhub-diff-code .token.punctuation {
+  color: oklch(0.72 0.03 250);
+}
+.dark .tinyhub-diff-code .token.property,
+.dark .tinyhub-diff-code .token.tag,
+.dark .tinyhub-diff-code .token.boolean,
+.dark .tinyhub-diff-code .token.number,
+.dark .tinyhub-diff-code .token.constant,
+.dark .tinyhub-diff-code .token.symbol {
+  color: oklch(0.75 0.16 20);
+}
+.dark .tinyhub-diff-code .token.selector,
+.dark .tinyhub-diff-code .token.attr-name,
+.dark .tinyhub-diff-code .token.string,
+.dark .tinyhub-diff-code .token.char,
+.dark .tinyhub-diff-code .token.builtin,
+.dark .tinyhub-diff-code .token.inserted {
+  color: oklch(0.78 0.15 142);
+}
+.dark .tinyhub-diff-code .token.operator,
+.dark .tinyhub-diff-code .token.entity,
+.dark .tinyhub-diff-code .token.url,
+.dark .tinyhub-diff-code .token.variable {
+  color: oklch(0.78 0.1 60);
+}
+.dark .tinyhub-diff-code .token.atrule,
+.dark .tinyhub-diff-code .token.attr-value,
+.dark .tinyhub-diff-code .token.keyword {
+  color: oklch(0.78 0.18 295);
+}
+.dark .tinyhub-diff-code .token.function,
+.dark .tinyhub-diff-code .token.class-name {
+  color: oklch(0.8 0.15 250);
+}
+.dark .tinyhub-diff-code .token.regex,
+.dark .tinyhub-diff-code .token.important {
+  color: oklch(0.78 0.2 20);
+}
+
+/* Subtle emerald accent for primary CTA */
+.tinyhub-accent {
+  color: oklch(0.45 0.13 162);
+}
+.dark .tinyhub-accent {
+  color: oklch(0.78 0.16 162);
+}
+
+/* Markdown rendering (README / .md files) */
+.tinyhub-markdown {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--foreground);
+}
+.tinyhub-markdown h1,
+.tinyhub-markdown h2,
+.tinyhub-markdown h3,
+.tinyhub-markdown h4,
+.tinyhub-markdown h5,
+.tinyhub-markdown h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 1.5em;
+  margin-bottom: 0.6em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+.tinyhub-markdown h1 { font-size: 1.8em; }
+.tinyhub-markdown h2 { font-size: 1.5em; }
+.tinyhub-markdown h3 { font-size: 1.25em; }
+.tinyhub-markdown h4 { font-size: 1em; }
+.tinyhub-markdown h5,
+.tinyhub-markdown h6 { font-size: 0.9em; color: var(--muted-foreground); }
+.tinyhub-markdown h1:first-child,
+.tinyhub-markdown h2:first-child,
+.tinyhub-markdown h3:first-child {
+  margin-top: 0;
+}
+.tinyhub-markdown p {
+  margin: 0.75em 0;
+}
+.tinyhub-markdown ul,
+.tinyhub-markdown ol {
+  margin: 0.75em 0;
+  padding-left: 1.5em;
+}
+.tinyhub-markdown ul { list-style: disc; }
+.tinyhub-markdown ol { list-style: decimal; }
+.tinyhub-markdown li {
+  margin: 0.25em 0;
+}
+.tinyhub-markdown li > input[type="checkbox"] {
+  margin-right: 0.5em;
+}
+.tinyhub-markdown .tinyhub-md-checkbox {
+  accent-color: oklch(0.6 0.13 162);
+}
+.tinyhub-markdown blockquote {
+  margin: 0.75em 0;
+  padding: 0.25em 1em;
+  border-left: 3px solid oklch(0.6 0.13 162);
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-radius: 0 4px 4px 0;
+}
+.tinyhub-markdown .tinyhub-md-pre {
+  margin: 0.75em 0;
+  padding: 0.85em 1em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.tinyhub-markdown .tinyhub-md-code-inline {
+  padding: 0.15em 0.4em;
+  background: var(--muted);
+  border-radius: 3px;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.88em;
+}
+.tinyhub-markdown .tinyhub-md-link {
+  color: oklch(0.45 0.13 162);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tinyhub-markdown .tinyhub-md-link:hover {
+  color: oklch(0.55 0.15 162);
+}
+.dark .tinyhub-markdown .tinyhub-md-link {
+  color: oklch(0.78 0.16 162);
+}
+.tinyhub-markdown hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.tinyhub-markdown .tinyhub-md-table-wrap {
+  margin: 0.75em 0;
+  overflow-x: auto;
+}
+.tinyhub-markdown .tinyhub-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tinyhub-markdown .tinyhub-md-table th,
+.tinyhub-markdown .tinyhub-md-table td {
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.tinyhub-markdown .tinyhub-md-table th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.tinyhub-markdown .tinyhub-md-table tr:nth-child(even) td {
+  background: var(--muted) / 0.5;
+}
+.tinyhub-markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+/* File-tree row hover (used in Browser view) */
+.tinyhub-tree-row {
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.tinyhub-tree-row:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* Dotted gridline background for upload dropzone */
+.tinyhub-dropzone {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--border) 1px,
+    transparent 0
+  );
+  background-size: 16px 16px;
+}
+
+/* Syntax-highlighter container — line numbers & padding */
+.tinyhub-code-pre {
+  margin: 0 !important;
+  background: transparent !important;
+  font-size: 13px;
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+}
+.tinyhub-code-pre code {
+  font-family: inherit !important;
+}
+
+/* Smooth view transitions */
+.tinyhub-view-enter {
+  animation: tinyhub-fade-in 200ms ease-out;
+}
+@keyframes tinyhub-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Make sonner toasts inherit theme tokens */
+.toaster {
+  --normal-bg: var(--popover) !important;
+  --normal-text: var(--popover-foreground) !important;
+  --normal-border: var(--border) !important;
+}
+
