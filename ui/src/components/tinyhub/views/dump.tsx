@@ -180,7 +180,11 @@ export function Dump() {
     URL.revokeObjectURL(url);
   };
 
-  const fileCount = dump ? Object.keys(dump.files || {}).length : 0;
+  const fileCount = dump
+    ? Array.isArray(dump.files)
+      ? dump.files.length
+      : Object.keys(dump.files || {}).length
+    : 0;
   const skippedCount = dump?.skipped?.length || 0;
   const isDark = resolvedTheme === "dark";
 
@@ -414,6 +418,25 @@ export function Dump() {
                 <CardContent className="px-4 text-center text-sm text-muted-foreground">
                   No files in this dump. Adjust the mode/path filter and try
                   again.
+                </CardContent>
+              </Card>
+            ) : Array.isArray(dump.files) ? (
+              <Card className="py-4">
+                <CardHeader className="px-4 pb-2">
+                  <CardTitle className="text-sm font-medium">Project Summary ({dump.files.length} files)</CardTitle>
+                </CardHeader>
+                <CardContent className="px-4">
+                  <div className="divide-y text-xs font-mono">
+                    {(dump.files as any[]).map((f) => (
+                      <div key={f.path} className="py-2 flex items-center justify-between gap-3">
+                        <span className="truncate">{f.path}</span>
+                        <div className="flex items-center gap-4 text-muted-foreground shrink-0 tabular-nums">
+                          <span>{formatBytes(f.size || 0)}</span>
+                          {f.sha256 && <span className="text-[10px] hidden sm:inline text-muted-foreground/70">{f.sha256.slice(0, 12)}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             ) : (

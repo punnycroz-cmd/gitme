@@ -19,6 +19,7 @@ import type {
   TreeResponse,
   UploadMode,
 } from "./types";
+import { formatBytes } from "./utils";
 
 const TOKEN_KEY = "tinyhub_token";
 const AUTHOR_KEY = "tinyhub_author";
@@ -487,10 +488,19 @@ export function getDumpHtmlUrl(proj: string, q: DumpQuery): string {
 /** Build the "// File: path" concatenation for "Copy All" / "Download". */
 export function buildDumpText(dump: DumpJsonResponse): string {
   const lines: string[] = [];
-  for (const [path, content] of Object.entries(dump.files || {})) {
-    lines.push(`// File: ${path}`);
-    lines.push(content.replace(/\s+$/, ""));
+  if (Array.isArray(dump.files)) {
+    lines.push(`// Summary: ${dump.project || dump.repo || "dump"}`);
+    lines.push(`// ${dump.files.length} files`);
     lines.push("");
+    for (const f of dump.files as any[]) {
+      lines.push(`${f.path}\t${formatBytes(f.size || 0)}\t${f.sha256 || ''}`);
+    }
+  } else {
+    for (const [path, content] of Object.entries(dump.files || {})) {
+      lines.push(`// File: ${path}`);
+      lines.push(typeof content === "string" ? content.replace(/\s+$/, "") : JSON.stringify(content));
+      lines.push("");
+    }
   }
   if (dump.skipped && dump.skipped.length) {
     lines.push("// Skipped:");

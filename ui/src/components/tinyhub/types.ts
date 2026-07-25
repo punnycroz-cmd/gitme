@@ -138,11 +138,12 @@ export interface DumpSkipped {
 }
 
 export interface DumpJsonResponse {
-  repo: string;
+  repo?: string;
+  project?: string;
   type: string;
   commit: string | null;
   createdAt: number | null;
-  files: Record<string, string>;
+  files: Record<string, string> | Array<{ path: string; size: number; sha256?: string }>;
   skipped: DumpSkipped[];
 }
 
