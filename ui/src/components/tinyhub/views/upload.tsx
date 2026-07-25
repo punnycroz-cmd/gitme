@@ -63,7 +63,7 @@ export function Upload() {
   const setView = useTinyHubStore((s) => s.setView);
 
   const [project, setProjectName] = React.useState(
-    storeProject || "my-app"
+    storeProject || ""
   );
   const [mode, setMode] = React.useState<UploadMode>("push");
   const [message, setMessage] = React.useState("");
@@ -243,7 +243,7 @@ export function Upload() {
               id="proj"
               value={project}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder="my-app"
+              placeholder="e.g. project-name"
               className="font-mono"
               spellCheck={false}
               autoCapitalize="off"
