@@ -34,8 +34,8 @@ router.get('/api/config', getConfig);
 router.get('/api/projects', getProjects);
 
 // Activity routes (for UI dashboard)
-router.get('/api/activity', (req) => jsonResponse([], 200, writeCorsHeaders(req)));
-router.get('/api/activity/heatmap', (req) => jsonResponse({}, 200, writeCorsHeaders(req)));
+router.get('/api/activity', (req) => jsonResponse({ days: [], total: 0, maxDay: 0, maxDate: null }, 200, writeCorsHeaders(req)));
+router.get('/api/activity/heatmap', (req) => jsonResponse({ weeks: [], total: 0, maxCount: 0, weeksSpan: 0 }, 200, writeCorsHeaders(req)));
 
 // Support both /api/:action/:proj and /api/projects/:proj/:action
 router.get('/api/tip/:proj', getTip);
