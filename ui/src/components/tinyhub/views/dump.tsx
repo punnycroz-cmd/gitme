@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-const SyntaxHighlighter = lazy(() => import('react-syntax-highlighter').then(mod => ({ default: mod.PrismLight })));
+import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import { lazy, Suspense } from "react";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
@@ -66,6 +66,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
+import { DumpHeader } from "../DumpHeader";
 import { useTinyHubStore } from "../store";
 import {
   ApiError,
@@ -145,7 +146,6 @@ export function Dump() {
         });
         setDump(data);
       }
-      setDump(data);
     } catch (e) {
       const msg =
         e instanceof ApiError || e instanceof Error
@@ -211,29 +211,13 @@ export function Dump() {
 
   return (
     <div className="tinyhub-view-enter space-y-4">
-      {/* Header */}
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight flex items-center gap-2">
-            Dump
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Snapshot of <code className="font-mono">{project}</code> as a single
-            text bundle. Perfect for handing off to an LLM or generating a
-            code-review pack.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Fast mode toggle */}
-          <Button variant="secondary" size="sm" onClick={() => setFastMode(!fastMode)} disabled={loading}>
-            {fastMode ? "Fast HTML" : "JSON View"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={fetchDump} disabled={loading}>
-            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <DumpHeader
+        project={project}
+        fastMode={fastMode}
+        setFastMode={setFastMode}
+        loading={loading}
+        fetchDump={fetchDump}
+      />
 
       {/* Controls bar */}
       <Card className="py-4">
@@ -518,7 +502,7 @@ export function Dump() {
   );
 }
 
-function FileSection({
+export function FileSection({
   path,
   content,
   isDark,
