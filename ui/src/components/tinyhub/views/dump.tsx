@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
+const SyntaxHighlighter = lazy(() => import('react-syntax-highlighter').then(mod => ({ default: mod.PrismLight })));
+import { lazy, Suspense } from "react";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   javascript,
@@ -100,6 +101,9 @@ export function Dump() {
   const { resolvedTheme } = useTheme();
 
   const [mode, setMode] = React.useState<DumpMode>("full");
+  // New state for fast HTML mode and HTML content
+  const [fastMode, setFastMode] = React.useState(true);
+  const [htmlContent, setHtmlContent] = React.useState<string | null>(null);
   const [since, setSince] = React.useState("");
   const [maxTokens, setMaxTokens] = React.useState("");
   const [pathFilter, setPathFilter] = React.useState("");
@@ -116,14 +120,31 @@ export function Dump() {
     setLoading(true);
     setError(null);
     setDump(null);
+    setHtmlContent(null);
     try {
-      const data = await getDumpJson(project, {
-        mode,
-        since: since || undefined,
-        max_tokens: maxTokens ? Number(maxTokens) : undefined,
-        path: pathFilter || undefined,
-        format: "json",
-      });
+      if (fastMode) {
+        // Fetch pre‑rendered HTML dump
+        const url = getDumpHtmlUrl(project, {
+          mode,
+          since: since || undefined,
+          max_tokens: maxTokens ? Number(maxTokens) : undefined,
+          path: pathFilter || undefined,
+          format: "html",
+        });
+        const resp = await fetch(url);
+        const text = await resp.text();
+        setHtmlContent(text);
+      } else {
+        // Existing JSON dump fetch
+        const data = await getDumpJson(project, {
+          mode,
+          since: since || undefined,
+          max_tokens: maxTokens ? Number(maxTokens) : undefined,
+          path: pathFilter || undefined,
+          format: "json",
+        });
+        setDump(data);
+      }
       setDump(data);
     } catch (e) {
       const msg =
@@ -135,7 +156,7 @@ export function Dump() {
     } finally {
       setLoading(false);
     }
-  }, [project, mode, since, maxTokens, pathFilter]);
+  }, [project, mode, since, maxTokens, pathFilter, fastMode]);
 
   // Fetch on mount and when project changes.
   React.useEffect(() => {
@@ -202,10 +223,16 @@ export function Dump() {
             code-review pack.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchDump} disabled={loading}>
-          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Fast mode toggle */}
+          <Button variant="secondary" size="sm" onClick={() => setFastMode(!fastMode)} disabled={loading}>
+            {fastMode ? "Fast HTML" : "JSON View"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={fetchDump} disabled={loading}>
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Controls bar */}
@@ -360,7 +387,10 @@ export function Dump() {
       )}
 
       {/* Body */}
-      {dump && (
+      {fastMode && htmlContent && (
+        <div className="prose prose-sm max-w-none overflow-auto" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+      )}
+      {!fastMode && dump && (
         <div className="space-y-4">
           {/* Skipped files panel */}
           {skippedCount > 0 && (
@@ -501,7 +531,9 @@ function FileSection({
 }) {
   const [collapsed, setCollapsed] = React.useState(false);
   const lang = detectLanguage(path);
-  const lineCount = content ? content.split("\n").length : 0;
+  // Defer heavy line count calculation
+  const deferredContent = React.useDeferredValue(content);
+  const lineCount = deferredContent ? deferredContent.split('\n').length : 0;
   const byteSize = content ? new Blob([content]).size : 0;
   return (
     <motion.div
@@ -537,35 +569,37 @@ function FileSection({
             {content || ""}
           </pre>
         ) : (
-          <SyntaxHighlighter
-            language={lang || "text"}
-            style={isDark ? oneDark : oneLight}
-            showLineNumbers
-            wrapLongLines={false}
-            customStyle={{
-              margin: 0,
-              background: "transparent",
-              padding: "10px 14px",
-              fontSize: "12.5px",
-              fontFamily:
-                "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-            }}
-            lineNumberStyle={{
-              minWidth: "2.5em",
-              paddingRight: "1em",
-              color: "var(--muted-foreground)",
-              userSelect: "none",
-              opacity: 0.6,
-            }}
-            codeTagProps={{
-              style: {
+          <Suspense fallback={<Loader2 className="size-4 animate-spin"/>}>
+            <SyntaxHighlighter
+              language={lang || "text"}
+              style={isDark ? oneDark : oneLight}
+              showLineNumbers
+              wrapLongLines={false}
+              customStyle={{
+                margin: 0,
+                background: "transparent",
+                padding: "10px 14px",
+                fontSize: "12.5px",
                 fontFamily:
                   "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
-              },
-            }}
-          >
-            {content || ""}
-          </SyntaxHighlighter>
+              }}
+              lineNumberStyle={{
+                minWidth: "2.5em",
+                paddingRight: "1em",
+                color: "var(--muted-foreground)",
+                userSelect: "none",
+                opacity: 0.6,
+              }}
+              codeTagProps={{
+                style: {
+                  fontFamily:
+                    "var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace",
+                },
+              }}
+            >
+              {content || ""}
+            </SyntaxHighlighter>
+          </Suspense>
         )
       )}
     </motion.div>
