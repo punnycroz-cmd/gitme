@@ -3,6 +3,18 @@ import { listProjectFiles } from '../storage.js';
 import { jsonResponse, guessContentType, escapeHtml, getFileIcon, wantsJson, writeCorsHeaders } from '../helpers.js';
 import { LIMITS } from '../config.js';
 
+const FALLBACK_DUMP_TEMPLATE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title><!-- SSR_TITLE --></title><style>body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#090d16;color:#e2e8f0;}.dump-chips{display:flex;gap:8px;margin:12px 0;}.dump-chip{background:#1e293b;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px;}.dump-banner{background:#1e293b;padding:12px;border-radius:8px;margin-bottom:16px;}.dump-section{border:1px solid #1e293b;border-radius:8px;margin-bottom:16px;overflow:hidden;}.dump-path{background:#0f172a;padding:8px 12px;font-weight:600;font-family:monospace;font-size:13px;border-bottom:1px solid #1e293b;}.dump-code pre{margin:0;padding:12px;overflow-x:auto;font-family:monospace;font-size:12px;}</style></head><body><header><h1><!-- SSR_TITLE --></h1><!-- SSR_DUMP_CHIPS --></header><!-- SSR_DUMP_BANNER --><main class="dump-main"><!-- SSR_DUMP_CONTENT --></main><textarea id="raw-dump-text" style="display:none;"><!-- SSR_RAW_DUMP_TEXT --></textarea></body></html>`;
+
+async function fetchDumpTemplate(env, request) {
+  try {
+    const templateRes = await env.ASSETS.fetch(new Request(new URL('/dump-template.html', request.url)));
+    if (templateRes.ok) return await templateRes.text();
+  } catch (e) {
+    console.error('Failed fetching /dump-template.html', e);
+  }
+  return FALLBACK_DUMP_TEMPLATE;
+}
+
 export async function getRawFile(request, env) {
   const corsHeaders = writeCorsHeaders(request);
   const USER = env.TINYHUB_USER || 'andie';
@@ -53,9 +65,16 @@ export async function getBrowser(request, env) {
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   }
 
-  const templateRes = await env.ASSETS.fetch(new Request(new URL('/browser-template.html', request.url)));
-  if (!templateRes.ok) return new Response('Template not found', { status: 500 });
-  let htmlContent = await templateRes.text();
+  let htmlContent = '';
+  try {
+    const templateRes = await env.ASSETS.fetch(new Request(new URL('/browser-template.html', request.url)));
+    if (templateRes.ok) htmlContent = await templateRes.text();
+  } catch (e) {
+    console.error('Failed fetching /browser-template.html', e);
+  }
+  if (!htmlContent) {
+    htmlContent = `<!doctype html><html><head><title>TinyHub Browser</title></head><body><main><!-- SSR_BREADCRUMBS --><div id="tree"><!-- SSR_TREE --></div><div id="content"><!-- SSR_FILE_CONTENT --></div></main></body></html>`;
+  }
 
   const files = await listProjectFiles(env.FILES, USER, proj);
   const paths = files.map(f => f.path);
@@ -348,9 +367,7 @@ export async function getDump(request, env) {
   // HTML prompt rendering
   if (mode === 'summary') {
     const summaryFiles = files.map(f => ({ path: f.path, size: f.size, sha256: f.sha256 }));
-    const templateRes = await env.ASSETS.fetch(new Request(new URL('/dump-template.html', request.url)));
-    if (!templateRes.ok) return new Response('Template not found', { status: 500 });
-    let tmpl = await templateRes.text();
+    let tmpl = await fetchDumpTemplate(env, request);
     tmpl = tmpl.replace('<!-- SSR_PROJECT_NAME -->', escapeHtml(proj));
     tmpl = tmpl.replace('<!-- SSR_BROWSER_URL -->', `/p/${user}/${proj}/`);
     tmpl = tmpl.replace('<!-- SSR_RAW_DUMP_TEXT -->', escapeHtml(`// Summary: ${user}/${proj}\n// ${summaryFiles.length} files, ${summaryFiles.reduce((s, f) => s + f.size, 0)} bytes total\n`));
@@ -491,9 +508,7 @@ Reply only with changed files using <code>// File: path</code></pre>
   if (skipped.length) metaHtml += ` · ${skipped.length} skipped`;
   metaHtml += ` · ${totalBytes.toLocaleString()} bytes`;
 
-  const templateRes = await env.ASSETS.fetch(new Request(new URL('/dump-template.html', request.url)));
-  if (!templateRes.ok) return new Response('Template not found', { status: 500 });
-  let tmpl = await templateRes.text();
+  let tmpl = await fetchDumpTemplate(env, request);
 
   const title = `TinyHub — ${user}/${proj} (${isDeltaMode ? 'delta' : 'dump'})`;
   tmpl = tmpl.replace('<!-- SSR_TITLE -->', escapeHtml(title));
