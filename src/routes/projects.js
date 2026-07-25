@@ -79,12 +79,14 @@ export async function getTree(request, env) {
       size: f.size,
       sha256: f.sha256
     }));
+    const { tree } = buildStructuredTree(paths, Object.fromEntries(files.map(f => [f.path, f.size])));
     return jsonResponse({
       repo: `${USER}/${proj}`,
       project: proj,
       commit: commitHash,
       createdAt: lastCommit?.created_at || null,
       files: fileList,
+      tree,
       count: fileList.length
     }, 200, corsHeaders, { 'ETag': etag });
   }
