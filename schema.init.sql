@@ -20,14 +20,16 @@ CREATE TABLE commits (
   author TEXT NOT NULL,
   message TEXT NOT NULL,
   stats_json TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
 );
 CREATE INDEX idx_commits_user_proj ON commits(user, proj, created_at DESC);
+CREATE INDEX idx_commits_hash ON commits(hash12);
 
 CREATE TABLE commit_files (
   commit_id TEXT NOT NULL,
   path TEXT NOT NULL,
-  change_type TEXT NOT NULL,
-  FOREIGN KEY (commit_id) REFERENCES commits(id)
+  change_type TEXT NOT NULL CHECK(change_type IN ('added','modified','deleted')),
+  FOREIGN KEY (commit_id) REFERENCES commits(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_commit_files_commit ON commit_files(commit_id);

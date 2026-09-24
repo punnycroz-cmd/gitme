@@ -23,5 +23,8 @@ type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 30, period = 60 }
 
+[triggers]
+crons = ["*/10 * * * *"]
+
 [observability]
 enabled = true

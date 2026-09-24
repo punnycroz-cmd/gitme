@@ -37,7 +37,10 @@ export async function postUpload(request, env) {
   const incremental = formData.get('incremental') === '1';
   let explicitDeletes = [];
   try {
-    explicitDeletes = JSON.parse(formData.get('deletes') || '[]');
+    const parsed = JSON.parse(formData.get('deletes') || '[]');
+    explicitDeletes = (Array.isArray(parsed) ? parsed : [])
+      .map(d => safeRelPath(String(d)))
+      .filter(p => p && !isBlocked(p));
   } catch (e) {
     explicitDeletes = [];
   }
@@ -128,13 +131,20 @@ export async function postUpload(request, env) {
 
   if (incremental) {
     if (explicitDeletes.length > 0) {
-      deleted.push(...explicitDeletes);
+      const existing = new Set(currentPaths);
+      for (const p of explicitDeletes) {
+        if (existing.has(p) && !tNew.has(p)) deleted.push(p);
+      }
     }
   } else if (mode === 'push') {
     const toDelete = currentPaths.filter(p => !tNew.has(p));
     if (toDelete.length > 0) {
       deleted.push(...toDelete);
     }
+  }
+
+  if (saved.length === 0 && deleted.length === 0) {
+    return jsonResponse({ ok: true, empty: true, message: 'Everything up-to-date', project: proj }, 200, corsHeaders);
   }
 
   const totalFiles = currentPaths.length + added.length - deleted.length;
