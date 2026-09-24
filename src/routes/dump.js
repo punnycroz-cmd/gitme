@@ -30,7 +30,12 @@ export async function getRawFile(request, env) {
   if (!pathname.startsWith(prefix)) {
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   }
-  const filepath = safeRelPath(pathname.substring(prefix.length));
+  let filepath = null;
+  try {
+    filepath = safeRelPath(decodeURIComponent(pathname.substring(prefix.length)));
+  } catch (e) {
+    filepath = null;
+  }
 
   if (user !== USER || !proj || !filepath || isBlocked(filepath)) {
     return new Response('Not Found', { status: 404, headers: corsHeaders });
@@ -58,7 +63,11 @@ export async function getBrowser(request, env) {
   const prefix = `/p/${user}/${proj}/`;
   let filepath = '';
   if (url.pathname.startsWith(prefix)) {
-    filepath = safeRelPath(url.pathname.substring(prefix.length)) || '';
+    try {
+      filepath = safeRelPath(decodeURIComponent(url.pathname.substring(prefix.length))) || '';
+    } catch (e) {
+      filepath = '';
+    }
   }
 
   if (user !== USER || !proj) {

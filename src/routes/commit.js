@@ -54,10 +54,12 @@ export async function postCommit(request, env) {
     saved.push(safePath);
   }
 
+  const existing = new Set(currentPaths);
+  const savedSet = new Set(saved);
   for (const path of deletes || []) {
     const safePath = safeRelPath(path);
     if (!safePath || isBlocked(safePath)) continue;
-    deleted.push(safePath);
+    if (existing.has(safePath) && !savedSet.has(safePath)) deleted.push(safePath);
   }
 
   if (saved.length === 0 && deleted.length === 0) {
